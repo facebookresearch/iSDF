@@ -1,0 +1,110 @@
+{
+    "dataset": {
+        "seq_dir": "/private/home/joeaortiz/incSDF/data/ScanNet-seqs/scene0030_00/",
+        "scene_mesh_file": "/private/home/joeaortiz/incSDF/data/gt_sdfs/scene0030_00/mesh.obj",
+        "gt_sdf_dir": "/private/home/joeaortiz/incSDF/data/gt_sdfs/scene0030_00/1cm/",
+        "format": "ScanNet",
+        "depth_scale": 1000.0,
+        "im_indices": [
+            0,
+            200,
+            400,
+            500,
+            570,
+            650
+        ],
+        "fps": 30,
+        "noisy_depth": 1,
+        "scannet_dir": "/private/home/joeaortiz/incSDF/data/ScanNet/scans/scene0030_00/"
+    },
+    "eval": {
+        "eval_pts_root": "/private/home/joeaortiz/incSDF/data/eval_pts/",
+        "save_slices": 0
+    },
+    "optimizer": {
+        "lr": 0.0013,
+        "weight_decay": 0.012,
+        "pose_lr": 0.0004
+    },
+    "trainer": {
+        "epochs": 8000
+    },
+    "render": {
+        "n_rays": 200,
+        "depth_range": [
+            0.07,
+            12.0
+        ],
+        "n_bins": 19,
+        "n_surf_samples": 8,
+        "iters_per_level": 50,
+        "kernel_init": 14,
+        "iters_per_kf": 60,
+        "iters_per_frame": 10,
+        "kf_dist_th": 0.1,
+        "kf_pixel_ratio": 0.65
+    },
+    "model": {
+        "refine_poses": 0,
+        "do_active": 0,
+        "frac_time_perception": 1.0,
+        "scale_output": 0.14,
+        "scale_input": 0.05937489,
+        "noise_std": 0.25,
+        "noise_kf": 0.08,
+        "noise_frame": 0.04,
+        "n_embed_funcs": 5,
+        "gauss_embed_std": 11,
+        "gauss_embed": 0,
+        "optim_embedding": 0,
+        "do_inducing_pts": 0,
+        "gt_scene": 1,
+        "window_size": 5,
+        "n_rays_is_kf": 400,
+        "do_tsdf": 0,
+        "hidden_layers_block": 2,
+        "hidden_feature_size": 256,
+        "dist_behind_surf": 0.1
+    },
+    "sample_kp": {
+        "sample_kps": 0,
+        "kp_rays_per_frame": 16000,
+        "kps_per_ray": 3,
+        "surf_kps_per_ray": 0,
+        "N": 4000,
+        "K": 12000,
+        "active_kp_sampling": 0,
+        "cache_target": 0
+    },
+    "loss": {
+        "sdf_supervision": "pc",
+        "loss_type": "L1",
+        "trunc_weight": 5.3834402,
+        "trunc_distance": 0.29365022,
+        "eik_weight": 0.268,
+        "eik_apply_dist": 0.1,
+        "grad_weight": 0.018,
+        "orien_loss": 0
+    },
+    "track": {
+        "lr": 0.01,
+        "max_iters": 18,
+        "min_iters": 5,
+        "delta_th": 0.003,
+        "n_rays_track": 180,
+        "n_bins_track": 32
+    },
+    "camera": {
+        "w": 640,
+        "h": 480,
+        "fx": 600.0,
+        "fy": 600.0,
+        "cx": 599.5,
+        "cy": 339.5,
+        "mw": 0,
+        "mh": 0
+    },
+    "vis": {
+        "im_vis_reduce": 10
+    }
+}
