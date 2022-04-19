@@ -193,15 +193,30 @@ class SDFViewer(trimesh.viewer.SceneViewer):
                         offset_meshes.append(m)
                     scene.add_geometry(offset_meshes)
 
-        callback = None
-        if save_dir is not None:
-            if not os.path.exists(save_dir):
-                os.makedirs(save_dir)
-            self.save_dir = save_dir
-            callback = self.update_view
+        # callback = None
+        # if save_dir is not None:
+        #     if not os.path.exists(save_dir):
+        #         os.makedirs(save_dir)
+        #     self.save_dir = save_dir
+        #     callback = self.update_view
+
+        callback = self.next_slice
+        self.play_slices = True
+        self.z_step = 1
+        self.depth_pc = scene.geometry['depth_pc']
+        scene.delete_geometry('depth_pc')
 
         if open_window:
-            print("Press S to iterate through sdf slices.")
+            print(
+                "\n\n"
+                "Opening iSDF 3D visualization window."
+                "\nUse the following keys to change the 3D visualization:"
+                "\n- SPACE , pauses / plays the cycling of the SDF slices. "
+                "\n- l , toggles the SDF slices."
+                "\n- m , toggles the surface mesh (obtained by running marching cubes on the zero level set of the reconstructed SDF)."
+                "\n- p , toggles the point cloud of the scene (obtained by backprojecting the depth image)."
+                "\n\n"
+            )
             super().__init__(
                 scene,
                 callback=callback,
@@ -232,7 +247,7 @@ class SDFViewer(trimesh.viewer.SceneViewer):
                 axis=-1)
             sdf_slice_pc = sdf_slice_pc.reshape([-1, 4])
 
-        self.z_ix += 1
+        self.z_ix += self.z_step
 
         if not self.colormap:
             # red for inside, green for outside
@@ -255,6 +270,17 @@ class SDFViewer(trimesh.viewer.SceneViewer):
             self.scene.add_geometry(pc, geom_name="pc")
             self._update_vertex_list()
 
+    def next_slice(self, scene):
+        if self.play_slices:
+            if self.z_ix == len(self.zs) - 1:
+                self.z_step = -1
+            if self.z_ix == 0:
+                self.z_step = 1
+
+            with self.lock:
+                self.scene.delete_geometry('pc')
+            self.add_slice_pc()
+
     def on_key_press(self, symbol, modifiers):
         """
         Call appropriate functions given key presses.
@@ -273,7 +299,19 @@ class SDFViewer(trimesh.viewer.SceneViewer):
         elif symbol == pyglet.window.key.Q:
             self.on_close()
         elif symbol == pyglet.window.key.M:
-            self.maximize()
+            # self.maximize()
+            # toggle mesh
+            if 'rec_mesh' in self.scene.geometry:
+                self.rec_mesh = self.scene.geometry['rec_mesh']
+                self.scene.delete_geometry('rec_mesh')
+            else:
+                self.scene.add_geometry(self.rec_mesh, geom_name='rec_mesh')
+        elif symbol == pyglet.window.key.L:
+            # toggle sdf slice
+            if 'pc' in self.scene.geometry:
+                self.scene.delete_geometry('pc')
+            else:
+                self.add_slice_pc()
         elif symbol == pyglet.window.key.F:
             self.toggle_fullscreen()
         elif symbol == pyglet.window.key.S:
@@ -287,9 +325,16 @@ class SDFViewer(trimesh.viewer.SceneViewer):
         elif symbol == pyglet.window.key.O:
             self.save_image(self.save_dir + f'/{self.z_ix:04d}.png')
             print("saved im at z_ix", self.z_ix)
-
-        elif symbol == pyglet.window.key.P:
+        elif symbol == pyglet.window.key.T:
             print(self.scene.camera_transform)
+        elif symbol == pyglet.window.key.P:
+            # toggle point cloud
+            if 'depth_pc' in self.scene.geometry:
+                self.scene.delete_geometry('depth_pc')
+            else:
+                self.scene.add_geometry(self.depth_pc, geom_name='depth_pc')
+        elif symbol == pyglet.window.key.SPACE:
+            self.play_slices = not self.play_slices
 
         if symbol in [
                 pyglet.window.key.LEFT,

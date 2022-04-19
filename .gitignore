@@ -1,8 +1,10 @@
 res
 results/figs/
 results/iSDF/batch_test
+results/iSDF/robopen
 results/kinectfusion+/
 results/voxblox/
+results/robopen/
 
 todo.md
 
@@ -160,5 +162,3 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
-
-

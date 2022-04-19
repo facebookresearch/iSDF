@@ -84,6 +84,7 @@ def draw_pc(batch_size,
             scene=None):
 
     pcs_w = []
+    cols = []
     for batch_i in range(batch_size):
         T_WC = T_WC_batch_np[batch_i]
         pc_cam = pcs_cam[batch_i]
@@ -92,6 +93,7 @@ def draw_pc(batch_size,
         if im_batch is not None:
             img = im_batch[batch_i]
             col = img.reshape(-1, 3)
+            cols.append(col)
 
         pc_tri = trimesh.PointCloud(vertices=pc_cam, colors=col)
         pc_tri.apply_transform(T_WC)
@@ -101,15 +103,16 @@ def draw_pc(batch_size,
             scene.add_geometry(pc_tri)
 
     pcs_w = np.concatenate(pcs_w, axis=0)
-    return pcs_w
+    cols = np.concatenate(cols)
+    return pcs_w, cols
 
 
-def marching_cubes_trimesh(numpy_3d_sdf_tensor):
+def marching_cubes_trimesh(numpy_3d_sdf_tensor, level=0.0):
     """
     Convert sdf samples to triangular mesh.
     """
     vertices, faces, vertex_normals, _ = skimage.measure.marching_cubes(
-        numpy_3d_sdf_tensor, level=0.0,
+        numpy_3d_sdf_tensor, level=level,
     )
 
     dim = numpy_3d_sdf_tensor.shape[0]
@@ -121,7 +124,7 @@ def marching_cubes_trimesh(numpy_3d_sdf_tensor):
     return mesh
 
 
-def draw_mesh(sdf, scale=None, transform=None):
+def draw_mesh(sdf, scale=None, transform=None, color_by="normals"):
     """
     Run marching cubes on sdf tensor to return mesh.
     """
@@ -139,7 +142,19 @@ def draw_mesh(sdf, scale=None, transform=None):
     if transform is not None:
         mesh.apply_transform(transform)
 
-    mesh.visual.face_colors = [160, 160, 160, 255]
+    if color_by == "normals":
+        norm_cols = (- mesh.vertex_normals + 1) / 2
+        norm_cols = np.clip(norm_cols, 0., 1.)
+        norm_cols = (norm_cols * 255).astype(np.uint8)
+        alphas = np.full([norm_cols.shape[0], 1], 255, dtype=np.uint8)
+        cols = np.concatenate((norm_cols, alphas), axis=1)
+        mesh.visual.vertex_colors = cols
+    elif color_by == "height":
+        zs = mesh.vertices[:, 1]
+        cols = trimesh.visual.interpolate(zs, color_map='viridis')
+        mesh.visual.vertex_colors = cols
+    else:
+        mesh.visual.face_colors = [160, 160, 160, 255]
 
     return mesh
 

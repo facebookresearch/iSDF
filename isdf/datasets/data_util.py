@@ -68,7 +68,8 @@ class FrameData:
             self.normal_batch, data.normal_batch, replace)
 
         device = data.im_batch.device
-        empty_dist = torch.zeros([1], device=device)
+        empty_dist = torch.zeros(
+            [data.im_batch.shape[0]], device=device)
         self.frame_avg_losses = expand_data(
             self.frame_avg_losses, empty_dist, replace)
 

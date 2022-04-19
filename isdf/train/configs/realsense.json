@@ -1,18 +1,24 @@
 {
     "dataset": {
-        "format": "ScanNet",
-        "seq_dir": "../../data/seqs/scene0005_00/",
-        "gt_sdf_dir": "../../data/gt_sdfs/scene0005_00/",
-        "noisy_depth": 1,
-        "im_indices": [0, 200, 400, 500, 570, 650],
-        "scannet_dir": "/mnt/sda/ScanNet/scans/scene0005_00/",
+        "format": "realsense",
         "depth_scale": 1000.0,
-        "fps": 30,
-        "intrinsics_file": "/mnt/sda/ScanNet/scans/scene0005_00/scene0005_00.txt"
+        "camera": {
+            "w": 1280,
+            "h": 720,
+            "fx": 636.1981811523438,
+            "fy": 635.5728149414062,
+            "cx": 633.679931640625,
+            "cy": 372.60797119140625,
+            "k1": -0.0566207692027092,
+            "k2": 0.06283268332481384,
+            "p1": 0.00026555059594102204,
+            "p2": 0.00022070924751460552,
+            "k3": -0.019803931936621666
+        }
     },
     "eval": {
         "do_vox_comparison": 0,
-        "eval_pts_root": "../../data/eval_pts/",
+        "eval_pts_root": "/mnt/datasets/data/eval_pts/",
         "do_eval": 0,
         "eval_freq_s": 1,
         "sdf_eval": 1,
@@ -24,8 +30,9 @@
         "save_slices": 0,
         "save_meshes": 0
     },
+
     "optimiser": {
-        "lr": 0.0013,
+        "lr": 0.0004,
         "weight_decay": 0.012
     },
     "trainer": {
@@ -36,7 +43,8 @@
         "n_rays_is_kf": 400,
         "n_strat_samples": 19,
         "n_surf_samples": 8,
-        "depth_range": [0.07, 12.0],
+        "_depth_range": "[0.6, 6.0] for D455, [0.3, 3.0] for D435 ",
+        "depth_range": [0.15, 3.0],
         "dist_behind_surf": 0.1
     },
     "model": {
@@ -52,11 +60,11 @@
         "hidden_feature_size": 256,
         "iters_per_kf": 60,
         "iters_per_frame": 10,
-        "kf_dist_th": 0.1,
+        "kf_dist_th": 0.12,
         "kf_pixel_ratio": 0.65,
         "embedding": {
-            "scale_input": 0.05937489,
-            "n_embed_funcs": 5,
+            "scale_input": 0.04,
+            "n_embed_funcs": 8,
             "gauss_embed": 0,
             "gauss_embed_std": 11,
             "optim_embedding": 0            

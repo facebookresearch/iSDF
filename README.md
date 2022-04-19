@@ -1,10 +1,36 @@
-# iSDF: Real-time Neural Signed Distance Fields for Robot Perception
+<h1 align="center">
+  iSDF
+</h1>
 
-### [Project Page](https://joeaortiz.github.io/iSDF/) | [Paper](https://arxiv.org/abs/2204.02296)
+<h3 align="center">
+  Real-time Neural Signed Distance Fields for Robot Perception
+</h3>
+
+<div align="center">
+  <a href="https://joeaortiz.github.io/">Joseph Ortiz</a>,
+  Alexander Clegg,
+  Jing Dong,
+  Edgar Sucar,
+  David Novotny,
+  Michael Zollhoefer,
+  <a href="https://www.mustafamukadam.com/">Mustafa Mukadam</a>
+  <br/>
+  <b>Robotics: Science and Systems (RSS), 2022</b>
+</div>
+
+<p></p>
+
+<h4 align="center">
+  <a href="https://joeaortiz.github.io/iSDF/"><b>Project page</b></a> |
+  <a href="https://arxiv.org/abs/2204.02296"><b>Paper</b></a>
+</h4>
 
 iSDF is real-time system the reconstructs the signed distance field (SDF) of room scale environments through the online training of a neural SDF. The model is represented by a MLP that is trained in a continual learning style from a live stream of posed depth images using our self-supervised loss. For details see our [paper](https://arxiv.org/abs/2204.02296).
 
-![Alt Text](.github/intro.gif)
+<div align="center">
+  <img src=".github/intro.gif"
+  width="80%">
+</div>
 
 
 ### Example results
@@ -14,23 +40,34 @@ ReplicaCAD             |  ScanNet
 ![Alt Text](.github/replicaCAD.gif)  |  ![Alt Text](.github/scanNet.gif)
 
 
-## Installation 
+## Two iSDF Modes 
 
+There're two options for running iSDF, chose the desired mode and then follow **only** instructions in that section:
+
+1. **[Running iSDF on sequences with pose provided](#1-running-isdf-on-sequences-with-pose-provided)**: for running iSDF on ScanNet and ReplicaCAD sequences used in the paper. 
+2. **[Running iSDF with a live camera in ROS](#2-running-isdf-with-a-live-camera-in-ros)**: a ros wrapper for iSDF subscribes to a topic of posed frames that is published by an ORB-SLAM3 wrapper.
+
+
+## 1. Running iSDF on sequences with pose provided
+
+### Installation
+**Please read the [iSDF modes section](#two-isdf-modes) to make sure this is the mode you want before installing!**
 ```
 git clone https://github.com/facebookresearch/iSDF.git && cd iSDF
 ```
 
-To setup the environment.
+Setup the environment.
 
 ```
 conda env create -f environment.yml
 conda activate isdf
+```
+Install pytorch by following instructions [here](https://pytorch.org/get-started/locally/), then:
+```
 pip install -e .
 ```
 
-Install pytorch by following instructions [here](https://pytorch.org/get-started/locally/).
-
-## Downloading the data
+### Downloading the data
 
 Make sure to be in the conda environment.
 To download a single replicaCAD sequence (5GB):
@@ -43,14 +80,13 @@ bash data/download_data.sh
 ```
 
 The data is shared under the same [license](https://creativecommons.org/licenses/by/4.0/) as the Replica-CAD datset. 
-
 For instructions on how to generate the dataset see the [data README](data).
 
-### ScanNet sequences
+#### ScanNet sequences
 
 To run the ScanNet sequences, you must download the [ScanNet dataset](http://www.scan-net.org/). After downloading the scans, you should export the depth, color, poses and intrinsics for the sequences you wish to use with [this script](https://github.com/ScanNet/ScanNet/tree/master/SensReader/python).  
 
-## Usage
+### Usage
 
 If using ScanNet data, then you must set the directory for the downloaded sequence via the key `scannet_dir` in the config file.
 
@@ -61,7 +97,7 @@ python train.py --config configs/replicaCAD.json
 
 Press `s` to pause optimisation and view the reconstructed level set mesh.
 
-## Reproducing experiments
+### Reproducing experiments
 
 Run a batch of iSDF experiments sequentially in headless mode. To run these experiments you must have downloaded all 12 sequences using our bash script as well as separately downloading and exporting the ScanNet sequences. To run only the ReplicaCAD sequences, you can modify the `load_params` function in `batch_utils.py`. If you have multiple GPUs you may want to parallelise the experiment runs. Make sure to update `project_dir` and `scannet_dir` in `jobs_local.py` before running:
 
@@ -76,13 +112,103 @@ Code to reproduce results for our baselines is coming soon.
 
 Below we provide instructions to generate quantitative and qualitative results as in the paper. Note results may vary depending on the CPU / GPU used.
 
-### SDF accuracy plots
+#### SDF accuracy plots
 
 We provide the script to generate plots comparing SDF error, collision cost error and gradient cosine distance for iSDF and the two baselines. This script was used to generate all quantitative plots in the paper (e.g. Fig 8). Change the variable `isdf_dir` in the script before running:
 
 ```
 python isdf/eval/figs/all_seq.py
 ```
+
+## 2. Running iSDF with a live camera in ROS
+
+We use ROS to interface iSDF with a tracking system and enable running with a live camera. 
+The iSDF node subscribes to the topic: `frames`, which is a [custom message type](https://github.com/joeaortiz/ORB_SLAM3_ros/blob/main/msg/frame.msg) containing a time synchronised rgb image, depth image and pose. 
+We use a [ROS wrapper for ORB-SLAM3](https://github.com/joeaortiz/ORB_SLAM3_ros) in RGBD mode to publish to this topic.
+We have developed this project on Ubuntu 20.04 (and ROS Noetic, so several code changes may be needed to adapt to other OS and ROS versions.
+
+### Installation
+
+##### Clone and build ORB-SLAM3
+You may need to install some dependencies first, see [full instructions](https://github.com/UZ-SLAMLab/ORB_SLAM3) if you run into issues.
+```
+git clone https://github.com/UZ-SLAMLab/ORB_SLAM3.git ORB_SLAM3
+cd ORB_SLAM3
+chmod +x build.sh
+./build.sh
+```
+
+##### ROS Noetic
+Follow [install instructions](http://wiki.ros.org/noetic/Installation).
+
+##### Realsense camera
+```
+sudo apt-get install ros-$ROS_DISTRO-realsense2-camera
+```
+
+##### iSDF and ORB-SLAM3 wrapper
+
+Create a catkin workspace and clone iSDF inside:
+```
+mkdir -p ~/catkin_ws/src
+cd ~/catkin_ws
+catkin init
+cd src
+git clone --recurse-submodules https://github.com/facebookresearch/iSDF.git
+```
+Open `CMakeLists.txt` and change the directory that points to ORB-SLAM3 library at the beginning of the file (default is home folder).
+```
+nano ~/catkin_ws/src/iSDF/ORB_SLAM3_ros/CMakeLists.txt
+
+# Change this to your installation of ORB-SLAM3. Default is ~/
+set(ORB_SLAM3_DIR
+   $ENV{HOME}/ORB_SLAM3
+)
+```
+Unzip the `ORBvoc.txt` file: 
+```
+cd ~/catkin_ws/src/iSDF/ORB_SLAM3_ros/config
+tar -xf ORBvoc.txt.tar.gz
+```
+Build the ROS packages (while not in a conda environment):
+```
+cd ~/catkin_ws
+catkin_make
+source devel/setup.bash
+```
+
+Setup the iSDF conda environment.
+
+```
+conda env create -f environment.yml
+conda activate isdf
+```
+Install pytorch by following instructions [here](https://pytorch.org/get-started/locally/), then:
+```
+pip install -e .
+```
+
+#### Usage
+
+Before running you need to modify the camera intrinsics for both iSDF and ORB-SLAM3. If you launch the camera (`roslaunch realsense2_camera rs_camera.launch`), the intrinsics are published at `/camera/color/camera_info`. Copy these intrinsics into the iSDF config (`isdf/train/configs/realsense.json`) and the ORBSLAM3 config (`ORB_SLAM3_ros/config/realsense_config.yaml`).
+
+To launch run: 
+```
+roslaunch isdf train.launch show_orbslam_vis:=true
+```
+It can be helpful to show the ORB-SLAM3 vis as if the tracking fails iSDF will also fail.
+
+During live operation:
+
+- Press `c` to clear the keyframe set.
+- Press `s` to pause live operation and open a 3D visualization window. You can change the 3D visualization using key presses, instructions are printed in the terminal when the window is opened. 
+
+Our ORB-SLAM3 wrapper also contains a launchfile to run with the Azure Kinect camera. To run with a Kinect camera, modify the [`train.launch`](isdf/launch/train.launch) to launch `run_kinect.launch` and install the [kinect ros drivers](https://github.com/microsoft/Azure_Kinect_ROS_Driver).
+
+Current limitations:
+
+- iSDF runs in a single thread and alternates between training (optimising the map) and updating the live visualisation. You can change the frequency of the live visualisation updates, however if set too high, training can become slow.
+- The live visualistaion of the rendered depth and normals from the current view uses a very basic depth rendering method. This can lead to artifacts in the render even if the geometry is good. We plan to improve the depth rendering soon.
 
 ## Citation
 

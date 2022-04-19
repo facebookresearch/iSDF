@@ -4,8 +4,17 @@
         "seq_dir": "../../data/seqs/apt_2_nav/",
         "gt_sdf_dir": "../../data/gt_sdfs/apt_2/",
         "noisy_depth": 1,
-        "im_indices": [0, 200, 400, 500, 570, 650],
-        "scannet_dir": "/mnt/sda/ScanNet/scans/scene0031_00/"
+        "im_indices": [0, 200, 400, 500, 570, 650, 800, 750, 700],
+        "depth_scale": 3276.75,
+        "fps": 30,
+        "camera": {
+            "w": 1200,
+            "h": 680,
+            "fx": 600.0,
+            "fy": 600.0,
+            "cx": 599.5,
+            "cy": 339.5
+        }
     },
     "eval": {
         "do_vox_comparison": 0,

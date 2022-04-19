@@ -1,15 +1,16 @@
+#!/usr/bin/env python
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
-#!/usr/bin/env python
 import torch
 import numpy as np
 import json
 import os
 from datetime import datetime
 import argparse
+import cv2
 from torch.utils.tensorboard import SummaryWriter
 
 from isdf import visualisation
@@ -71,13 +72,20 @@ def train(
 
     last_eval = 0
 
+    # live vis init--------------------------------------------------------------
+    # if isdf_trainer.live:
+    kf_vis = None
+    cv2.namedWindow('iSDF keyframes', cv2.WINDOW_AUTOSIZE)
+    cv2.moveWindow("iSDF keyframes", 100, 700)
+
     # main  loop---------------------------------------------------------------
     print("Starting training for max", isdf_trainer.n_steps, "steps...")
     size_dataset = len(isdf_trainer.scene_dataset)
 
     break_at = -1
 
-    for t in range(isdf_trainer.n_steps):
+    t = 0
+    for _ in range(isdf_trainer.n_steps):
         # break at end -------------------------------------------------------
         if t == break_at and len(isdf_trainer.eval_times) == 0:
             if save:
@@ -90,7 +98,6 @@ def train(
                     with open(os.path.join(save_path, 'res.json'), 'w') as f:
                         json.dump(res, f, indent=4)
 
-            # isdf_trainer.view_sdf()
             break
 
         # get/add data---------------------------------------------------------
@@ -121,23 +128,32 @@ def train(
                         isdf_trainer.last_is_keyframe = True
                         isdf_trainer.optim_frames = 200
 
+            if t == 0 or (isdf_trainer.last_is_keyframe and not add_new_frame):
+                kf_vis = visualisation.draw.add_im_to_vis(
+                    kf_vis, isdf_trainer.frames.im_batch_np[-1], reduce_factor=6)
+                cv2.imshow('iSDF keyframes', kf_vis)
+                cv2.waitKey(1)
+
         # optimisation step---------------------------------------------
         losses, step_time = isdf_trainer.step()
-        status = [k + ': {:.6f}  '.format(losses[k]) for k in losses.keys()]
-        status = "".join(status) + '-- Step time: {:.2f}  '.format(step_time)
-        loss = losses['total_loss']
-        print(t, status)
+        if not isdf_trainer.live:
+            status = [k + ': {:.6f}  '.format(losses[k]) for k in losses.keys()]
+            status = "".join(status) + '-- Step time: {:.2f}  '.format(step_time)
+            print(t, status)
 
         if save and writer is not None:
             for key in losses.keys():
                 writer.add_scalar("losses/{key}", losses[key], t)
 
         # visualisation----------------------------------------------------------
-        if update_im_freq is not None and (t % update_im_freq == 0):
+        if (
+            not isdf_trainer.live and update_im_freq is not None and
+            (t % update_im_freq == 0)
+        ):
             display = {}
             isdf_trainer.update_vis_vars()
             display["keyframes"] = isdf_trainer.frames_vis()
-            display["slices"] = isdf_trainer.slices_vis()
+            # display["slices"] = isdf_trainer.slices_vis()
             if show_obj:
                 obj_slices_viz = isdf_trainer.obj_slices_vis()
 
@@ -158,6 +174,31 @@ def train(
                 display["obj_slices"] = obj_slices_viz
             yield display
 
+        t += 1
+
+        # render live view ----------------------------------------------------
+        view_freq = 10
+        if t % view_freq == 0 and isdf_trainer.live:
+            latest_vis = isdf_trainer.latest_frame_vis()
+            cv2.imshow('iSDF (frame rgb, depth), (rendered normals, depth)', latest_vis)
+            key = cv2.waitKey(5)
+
+            # active keyframes vis
+            # kf_active_vis = isdf_trainer.keyframe_vis(reduce_factor=4)
+            # cv2.imshow('iSDF keyframes v2', kf_active_vis)
+            # cv2.waitKey(1)
+
+            if key == 115:
+                # s key to show SDF slices
+                isdf_trainer.view_sdf()
+
+            if key == 99:
+                # c key clears keyframes
+                print('Clearing keyframes...')
+                isdf_trainer.clear_keyframes()
+                kf_vis = None
+                t = 0
+
         # save ----------------------------------------------------------------
         if save and len(isdf_trainer.save_times) > 0:
             if isdf_trainer.tot_step_time > isdf_trainer.save_times[0]:
@@ -177,7 +218,7 @@ def train(
                                 isdf_trainer.sdf_map.state_dict(),
                             "optimizer_state_dict":
                                 isdf_trainer.optimiser.state_dict(),
-                            "loss": loss.item(),
+                            "loss": losses['total_loss'].item(),
                         },
                         os.path.join(
                             checkpoint_path, "step_" + save_t + ".pth")
@@ -189,7 +230,7 @@ def train(
                         include_gt=False, include_diff=False,
                         include_chomp=False, draw_cams=True)
 
-                if isdf_trainer.save_meshes:
+                if isdf_trainer.save_meshes and isdf_trainer.tot_step_time > 0.4:
                     isdf_trainer.write_mesh(mesh_path + f"/{save_t}.ply")
 
         # evaluation -----------------------------------------------------
@@ -247,6 +288,7 @@ def train(
                         "sdf_error_visible/average", visible_res["av_l1"], t)
 
 
+
 if __name__ == "__main__":
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -267,7 +309,7 @@ if __name__ == "__main__":
         action="store_true",
         help="run headless (i.e. no visualisations)"
     )
-    args = parser.parse_args()
+    args, _ = parser.parse_known_args()  # ROS adds extra unrecongised args
 
     config_file = args.config
     headless = args.headless
@@ -283,7 +325,7 @@ if __name__ == "__main__":
         update_mesh_freq = None
 
     # save
-    save = True
+    save = False
     use_tensorboard = False
     if save:
         now = datetime.now()
@@ -319,7 +361,7 @@ if __name__ == "__main__":
         n_cols = 2
         if show_obj:
             n_cols = 3
-        tiling = (2, n_cols)
+        tiling = (1, n_cols)
         visualisation.display.display_scenes(
             scenes, height=int(680 * 0.7), width=int(1200 * 0.7), tile=tiling
         )
