@@ -87,10 +87,10 @@ python isdf/eval/figs/all_seq.py
 ## Citation
 
 ```
-@article{Ortiz:etal:iSDF2022,
+@inproceedings{Ortiz:etal:iSDF2022,
   title={iSDF: Real-Time Neural Signed Distance Fields for Robot Perception},
   author={Ortiz, Joseph and Clegg, Alexander and Dong, Jing and Sucar, Edgar and Novotny, David and Zollhoefer, Michael and Mukadam, Mustafa},
-  journal={arXiv preprint arXiv:2204.02296},
+  booktitle={Robotics: Science and Systems},
   year={2022}
 }
 ```
