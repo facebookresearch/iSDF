@@ -5,6 +5,9 @@
 
 import torch
 
+from isdf.geometry import transform
+from isdf.modules import fc_map
+
 
 def sdf_render_depth(z_vals, sdf):
     """
@@ -30,6 +33,28 @@ def sdf_render_depth(z_vals, sdf):
     #       depths.numel())
 
     return depths
+
+
+# Compute surface normals in the camera frame
+def render_normals(T_WC, render_depth, sdf_map, dirs_C):
+    origins, dirs_W = transform.origin_dirs_W(T_WC, dirs_C)
+    origins = origins.view(-1, 3)
+    dirs_W = dirs_W.view(-1, 3)
+
+    pc = origins + (dirs_W * (render_depth.flatten()[:, None]))
+    pc.requires_grad_()
+    sdf = sdf_map(pc)
+    sdf_grad = fc_map.gradient(pc, sdf)
+
+    surface_normals_W = - sdf_grad / \
+        (sdf_grad.norm(dim=1, keepdim=True) + 1e-4)
+    R_CW = T_WC[:, :3, :3].inverse()
+    surface_normals_C = (R_CW * surface_normals_W[..., None, :]).sum(dim=-1)
+
+    surface_normals_C = surface_normals_C.view(
+        render_depth.shape[0], render_depth.shape[1], 3)
+
+    return surface_normals_C
 
 
 def render_weighted(weights, vals, dim=-1, normalise=False):

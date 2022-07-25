@@ -15,6 +15,8 @@ import json
 import cv2
 import copy
 import os
+from scipy import ndimage
+from scipy.spatial import KDTree
 
 from isdf.datasets import (
     dataset, image_transforms, sdf_util, data_util
@@ -36,7 +38,7 @@ class Trainer():
         config_file,
         chkpt_load_file=None,
         incremental=True,
-        grid_dim=256,
+        grid_dim=200,
     ):
         super(Trainer, self).__init__()
 
@@ -57,7 +59,7 @@ class Trainer():
         self.sdf_transform = None
 
         self.grid_dim = grid_dim
-        self.chunk_size = 200000
+        self.chunk_size = 100000
 
         with open(config_file) as json_file:
             self.config = json.load(json_file)
@@ -68,8 +70,16 @@ class Trainer():
         self.set_cam()
         self.set_directions()
         self.load_data()
+
+        # scene params for visualisation
+        self.scene_center = None
+        self.inv_bounds_transform = None
+        self.active_idxs = None
+        self.active_pixels = None
         if self.gt_scene:
-            self.set_scene_properties()
+            scene_mesh = trimesh.exchange.load.load(
+                self.scene_file, process=False)
+            self.set_scene_properties(scene_mesh)
 
         self.load_networks()
         if chkpt_load_file is not None:
@@ -77,8 +87,9 @@ class Trainer():
         self.sdf_map.train()
 
         # for evaluation
-        if self.sdf_transf_file is not None:
-            self.load_gt_sdf()
+        if self.do_eval:
+            if self.sdf_transf_file is not None:
+                self.load_gt_sdf()
         self.cosSim = torch.nn.CosineSimilarity(dim=-1, eps=1e-6)
 
     # Init functions ---------------------------------------
@@ -86,16 +97,20 @@ class Trainer():
     def get_latest_frame_id(self):
         return int(self.tot_step_time * self.fps)
 
-    def set_scene_properties(self):
-        scene_mesh = trimesh.exchange.load.load(self.scene_file, process=False)
-
+    def set_scene_properties(self, scene_mesh):
+        # if self.live:
+        #     # bounds is axis algined, camera initial pose defines origin
+        #     ax_aligned_box = scene_mesh.bounding_box
+        #     T_extent_to_scene, bounds_extents = \
+        #         trimesh.bounds.oriented_bounds(ax_aligned_box)
+        # else:
         # bounds_transform is a transformation matrix which moves
         # the center of the bounding box of the mesh to the origin.
         # bounds_extents is the extents of the mesh once transformed
         # with bounds_transform
-
         T_extent_to_scene, bounds_extents = \
             trimesh.bounds.oriented_bounds(scene_mesh)
+
         self.inv_bounds_transform = torch.from_numpy(
             T_extent_to_scene).float().to(self.device)
         self.bounds_transform_np = np.linalg.inv(T_extent_to_scene)
@@ -130,61 +145,96 @@ class Trainer():
 
     def set_params(self):
         # Dataset
-        self.seq_dir = self.config["dataset"]["seq_dir"]
-        self.seq = [x for x in self.seq_dir.split('/') if x != ''][-1]
-        self.ims_file = os.path.join(self.seq_dir, "results")
+        # require dataset format, depth scale and camera params
         self.dataset_format = self.config["dataset"]["format"]
-        seq_root = "/".join(self.seq_dir.split('/')[:-2])
-        info_file = os.path.join(seq_root, f"{self.dataset_format}_info.json")
-        with open(info_file, 'r') as f:
-            self.seq_info = json.load(f)
-        self.inv_depth_scale = 1. / self.seq_info["depth_scale"]
-        self.fps = self.seq_info["fps"]
+        self.live = False
+        if self.dataset_format in ["arkit", "realsense"]:
+            self.live = True
+        self.inv_depth_scale = 1. / self.config["dataset"]["depth_scale"]
+        self.distortion_coeffs = []
+        if self.dataset_format == "ScanNet":
+            self.set_scannet_cam_params(
+                self.config["dataset"]["intrinsics_file"])
+        else:
+            self.fx = self.config["dataset"]["camera"]["fx"]
+            self.fy = self.config["dataset"]["camera"]["fy"]
+            self.cx = self.config["dataset"]["camera"]["cx"]
+            self.cy = self.config["dataset"]["camera"]["cy"]
+            self.H = self.config["dataset"]["camera"]["h"]
+            self.W = self.config["dataset"]["camera"]["w"]
+            if "k1" in self.config["dataset"]["camera"]:
+                self.distortion_coeffs.append(self.config["dataset"]["camera"]["k1"])
+            if "k2" in self.config["dataset"]["camera"]:
+                self.distortion_coeffs.append(self.config["dataset"]["camera"]["k2"])
+            if "p1" in self.config["dataset"]["camera"]:
+                self.distortion_coeffs.append(self.config["dataset"]["camera"]["p1"])
+            if "p2" in self.config["dataset"]["camera"]:
+                self.distortion_coeffs.append(self.config["dataset"]["camera"]["p2"])
+            if "k3" in self.config["dataset"]["camera"]:
+                self.distortion_coeffs.append(self.config["dataset"]["camera"]["k3"])
 
-        self.obj_bounds_file = None
-        if os.path.exists(self.seq_dir + "/obj_bounds.txt"):
-            self.obj_bounds_file = self.seq_dir + "/obj_bounds.txt"
         self.gt_scene = False
-        if "gt_sdf_dir" in self.config["dataset"]:
-            gt_sdf_dir = self.config["dataset"]["gt_sdf_dir"]
-            self.scene_file = gt_sdf_dir + "mesh.obj"
-            self.gt_sdf_file = gt_sdf_dir + "/1cm/sdf.npy"
-            self.stage_sdf_file = gt_sdf_dir + "/1cm/stage_sdf.npy"
-            self.sdf_transf_file = gt_sdf_dir + "/1cm/transform.txt"
-            self.gt_scene = True
-        self.scannet_dir = None
-        if "scannet_dir" in self.config["dataset"]:
-            self.scannet_dir = self.config["dataset"]["scannet_dir"]
-        if "im_indices" in self.config["dataset"]:
-            self.indices = self.config["dataset"]["im_indices"]
-        self.noisy_depth = False
-        if "noisy_depth" in self.config["dataset"]:
-            self.noisy_depth = bool(self.config["dataset"]["noisy_depth"])
-        self.traj_file = self.seq_dir + "/traj.txt"
-        assert os.path.exists(self.traj_file)
+        self.fps = 30  # this can be set to anything when in live mode
+        if not self.live:
+            self.seq_dir = self.config["dataset"]["seq_dir"]
+            self.seq = [x for x in self.seq_dir.split('/') if x != ''][-1]
+            self.ims_file = os.path.join(self.seq_dir, "results")
+            self.fps = self.config["dataset"]["fps"]
+
+            self.obj_bounds_file = None
+
+            if os.path.exists(self.seq_dir + "/obj_bounds.txt"):
+                self.obj_bounds_file = self.seq_dir + "/obj_bounds.txt"
+            if "gt_sdf_dir" in self.config["dataset"]:
+                gt_sdf_dir = self.config["dataset"]["gt_sdf_dir"]
+                self.scene_file = gt_sdf_dir + "mesh.obj"
+                self.gt_sdf_file = gt_sdf_dir + "/1cm/sdf.npy"
+                self.stage_sdf_file = gt_sdf_dir + "/1cm/stage_sdf.npy"
+                self.sdf_transf_file = gt_sdf_dir + "/1cm/transform.txt"
+                self.gt_scene = True
+            self.scannet_dir = None
+            if self.dataset_format == "ScanNet":
+                self.scannet_dir = self.config["dataset"]["scannet_dir"]
+            if "im_indices" in self.config["dataset"]:
+                self.indices = self.config["dataset"]["im_indices"]
+            self.noisy_depth = False
+            if "noisy_depth" in self.config["dataset"]:
+                self.noisy_depth = bool(self.config["dataset"]["noisy_depth"])
+            self.traj_file = self.seq_dir + "/traj.txt"
+            # assert os.path.exists(self.traj_file)
+
         self.gt_traj = None
 
         self.n_steps = self.config["trainer"]["steps"]
 
         # Model
         self.do_active = bool(self.config["model"]["do_active"])
+        # scaling applied to network output before interpreting value as sdf
         self.scale_output = self.config["model"]["scale_output"]
+        # noise applied to network output
         self.noise_std = self.config["model"]["noise_std"]
         self.noise_kf = self.config["model"]["noise_kf"]
         self.noise_frame = self.config["model"]["noise_frame"]
+        # sliding window size for optimising latest frames
         self.window_size = self.config["model"]["window_size"]
         self.hidden_layers_block = self.config["model"]["hidden_layers_block"]
         self.hidden_feature_size = self.config["model"]["hidden_feature_size"]
+        # multiplier for time spent doing training vs time elapsed
+        # to simulate scenarios with e.g. 50% perception time, 50% planning
         self.frac_time_perception = \
             self.config["model"]["frac_time_perception"]
+        # optimisation steps per kf
         self.iters_per_kf = self.config["model"]["iters_per_kf"]
         self.iters_per_frame = self.config["model"]["iters_per_frame"]
+        # thresholds for adding frame to keyframe set
         self.kf_dist_th = self.config["model"]["kf_dist_th"]
         self.kf_pixel_ratio = self.config["model"]["kf_pixel_ratio"]
 
         embed_config = self.config["model"]["embedding"]
+        # scaling applied to coords before embedding
         self.scale_input = embed_config["scale_input"]
         self.n_embed_funcs = embed_config["n_embed_funcs"]
+        # boolean to use gaussian embedding
         self.gauss_embed = bool(embed_config["gauss_embed"])
         self.gauss_embed_std = embed_config["gauss_embed_std"]
         self.optim_embedding = bool(embed_config["optim_embedding"])
@@ -238,8 +288,10 @@ class Trainer():
         self.loss_type = self.config["loss"]["loss_type"]
         assert self.loss_type in ["L1", "L2"]
         self.trunc_weight = self.config["loss"]["trunc_weight"]
+        # distance at which losses transition (see paper for details)
         self.trunc_distance = self.config["loss"]["trunc_distance"]
         self.eik_weight = self.config["loss"]["eik_weight"]
+        # where to apply the eikonal loss
         self.eik_apply_dist = self.config["loss"]["eik_apply_dist"]
         self.grad_weight = self.config["loss"]["grad_weight"]
         self.orien_loss = bool(self.config["loss"]["orien_loss"])
@@ -258,39 +310,40 @@ class Trainer():
         self.dist_behind_surf = self.config["sample"]["dist_behind_surf"]
         self.n_rays = self.config["sample"]["n_rays"]
         self.n_rays_is_kf = self.config["sample"]["n_rays_is_kf"]
+        # num stratified samples per ray
         self.n_strat_samples = self.config["sample"]["n_strat_samples"]
+        # num surface samples per ray
         self.n_surf_samples = self.config["sample"]["n_surf_samples"]
 
-    def set_cam(self):
-        if self.dataset_format == "ScanNet":
-            info = {}
-            info_file = self.scannet_dir + self.seq + '.txt'
-            with open(info_file, 'r') as f:
-                for line in f.read().splitlines():
-                    split = line.split(' = ')
-                    info[split[0]] = split[1]
-            self.fx = float(info['fx_depth'])
-            self.fy = float(info['fy_depth'])
-            self.cx = float(info['mx_depth'])
-            self.cy = float(info['my_depth'])
-            self.H = int(info['depthHeight'])
-            self.W = int(info['depthWidth'])
-            self.W = int(info['depthWidth'])
-        else:
-            self.fx = self.seq_info["camera"]["fx"]
-            self.fy = self.seq_info["camera"]["fy"]
-            self.cx = self.seq_info["camera"]["cx"]
-            self.cy = self.seq_info["camera"]["cy"]
-            self.H = self.seq_info["camera"]["h"]
-            self.W = self.seq_info["camera"]["w"]
+    def set_scannet_cam_params(self, file):
+        info = {}
+        with open(file, 'r') as f:
+            for line in f.read().splitlines():
+                split = line.split(' = ')
+                info[split[0]] = split[1]
+        self.fx = float(info['fx_depth'])
+        self.fy = float(info['fy_depth'])
+        self.cx = float(info['mx_depth'])
+        self.cy = float(info['my_depth'])
+        self.H = int(info['depthHeight'])
+        self.W = int(info['depthWidth'])
 
-        reduce_factor = 10
+    def set_cam(self):
+        reduce_factor = 16
         self.H_vis = self.H // reduce_factor
         self.W_vis = self.W // reduce_factor
         self.fx_vis = self.fx / reduce_factor
         self.fy_vis = self.fy / reduce_factor
         self.cx_vis = self.cx / reduce_factor
         self.cy_vis = self.cy / reduce_factor
+
+        reduce_factor_up = 8
+        self.H_vis_up = self.H // reduce_factor_up
+        self.W_vis_up = self.W // reduce_factor_up
+        self.fx_vis_up = self.fx / reduce_factor_up
+        self.fy_vis_up = self.fy / reduce_factor_up
+        self.cx_vis_up = self.cx / reduce_factor_up
+        self.cy_vis_up = self.cy / reduce_factor_up
 
         self.loss_approx_factor = 8
         w_block = self.W // self.loss_approx_factor
@@ -333,7 +386,18 @@ class Trainer():
             self.cy_vis,
             self.device,
             depth_type="z",
+        ).view(1, -1, 3)
 
+        self.dirs_C_vis_up = geometry.transform.ray_dirs_C(
+            1,
+            self.H_vis_up,
+            self.W_vis_up,
+            self.fx_vis_up,
+            self.fy_vis_up,
+            self.cx_vis_up,
+            self.cy_vis_up,
+            self.device,
+            depth_type="z",
         ).view(1, -1, 3)
 
     def load_networks(self):
@@ -374,12 +438,15 @@ class Trainer():
     # Data methods ---------------------------------------
 
     def load_data(self):
+
         rgb_transform = transforms.Compose(
             [image_transforms.BGRtoRGB()])
         depth_transform = transforms.Compose(
             [image_transforms.DepthScale(self.inv_depth_scale),
              image_transforms.DepthFilter(self.max_depth)])
 
+        camera_matrix = None
+        noisy_depth = None
         if self.dataset_format == "ScanNet":
             dataset_class = dataset.ScanNetDataset
             col_ext = ".jpg"
@@ -395,14 +462,35 @@ class Trainer():
             col_ext = ".png"
             self.up = np.array([0., 1., 0.])
             ims_file = self.ims_file
+            noisy_depth = self.noisy_depth
+        elif self.dataset_format == "arkit":
+            dataset_class = dataset.ARKit
+            col_ext = None
+            self.up = np.array([0., 0., 1.])
+            ims_file = None
+            self.traj_file = None
+        elif self.dataset_format == "realsense":
+            dataset_class = dataset.ROSSubscriber
+            col_ext = None
+            self.up = np.array([0., 0., 1.])
+            ims_file = None
+            self.traj_file = None
+            camera_matrix = np.array([[self.fx, 0.0, self.cx], [0.0, self.fy, self.cy], [0.0, 0.0, 1.0]])
+        elif self.dataset_format == "robopen":
+            dataset_class = dataset.ReplicaDataset
+            col_ext = ".png"
+            self.up = np.array([0., 0., 1.])
+            ims_file = self.ims_file
 
         self.scene_dataset = dataset_class(
             ims_file,
-            self.traj_file,
+            traj_file=self.traj_file,
             rgb_transform=rgb_transform,
             depth_transform=depth_transform,
             col_ext=col_ext,
-            noisy_depth=self.noisy_depth,
+            noisy_depth=noisy_depth,
+            distortion_coeffs=self.distortion_coeffs,
+            camera_matrix=camera_matrix,
         )
 
         if self.incremental is False:
@@ -417,6 +505,7 @@ class Trainer():
                             replace=False)
 
             print("Frame indices", self.indices)
+            self.last_is_keyframe = True
             idxs = self.indices
             frame_data = self.get_data(idxs)
             self.add_data(frame_data)
@@ -455,7 +544,7 @@ class Trainer():
 
         return frames_data
 
-    def add_data(self, data):
+    def add_data(self, data, replace=False):
         # if last frame isn't a keyframe then the new frame
         # replaces last frame in batch.
         replace = self.last_is_keyframe is False
@@ -507,7 +596,7 @@ class Trainer():
             below_th_prop.item(),
             "for KF should be less than",
             self.kf_pixel_ratio,
-            ". Therefore is keyframe:",
+            " ---> is keyframe:",
             is_keyframe
         )
 
@@ -531,7 +620,7 @@ class Trainer():
             self.last_is_keyframe = self.is_keyframe(T_WC, depth_gt)
 
             time_since_kf = self.tot_step_time - self.frames.frame_id[-2] / 30.
-            if time_since_kf > 5.:
+            if time_since_kf > 5. and not self.live:
                 print("More than 5 seconds since last kf, so add new")
                 self.last_is_keyframe = True
 
@@ -566,6 +655,9 @@ class Trainer():
         idxs = [*rand_ints, last - 1, last]
 
         return idxs
+
+    def clear_keyframes(self):
+        self.frames = FrameData()  # keyframes
 
     # Main training methods ----------------------------------
 
@@ -849,12 +941,18 @@ class Trainer():
             # print("selected frame ids", self.frames.frame_id[idxs[:-1]])
         else:
             idxs = np.arange(T_WC_batch.shape[0])
+        self.active_idxs = idxs
 
         depth_batch = depth_batch[idxs]
         T_WC_select = T_WC_batch[idxs]
 
         sample_pts = self.sample_points(
             depth_batch, T_WC_select, norm_batch=norm_batch)
+        self.active_pixels = {
+            'indices_b': sample_pts['indices_b'],
+            'indices_h': sample_pts['indices_h'],
+            'indices_w': sample_pts['indices_w'],
+        }
 
         total_loss, losses, active_loss_approx, frame_avg_loss = \
             self.sdf_eval_and_loss(sample_pts, do_avg_loss=True)
@@ -935,24 +1033,158 @@ class Trainer():
                 prev_im_gt_resize,
                 replace=replace)
 
+    def latest_frame_vis(self):
+        start, end = start_timing()
+
+        # get latest frame from camera
+        data = self.scene_dataset[0]
+
+        image = data['image']
+        depth = data['depth']
+        image = cv2.resize(image, (self.W_vis_up, self.H_vis_up))
+        depth = cv2.resize(depth, (self.W_vis_up, self.H_vis_up))
+        depth_viz = imgviz.depth2rgb(
+            depth, min_value=self.min_depth, max_value=self.max_depth)
+        # depth_viz[depth == 0] = [0, 255, 0]
+
+        T_WC = data['T']
+        T_WC = torch.FloatTensor(T_WC).to(self.device)[None, ...]
+
+        with torch.set_grad_enabled(False):
+            # efficient depth and normals render
+            # valid_depth = depth != 0.0
+            # depth_sample = torch.FloatTensor(depth).to(self.device)[valid_depth]
+            # max_depth = depth_sample + 0.5  # larger max depth for depth render            
+            # dirs_C = self.dirs_C_vis[0, valid_depth.flatten()]
+
+            pc, z_vals = sample.sample_along_rays(
+                T_WC,
+                self.min_depth,
+                self.max_depth,
+                n_stratified_samples=20,
+                n_surf_samples=0,
+                dirs_C=self.dirs_C_vis,
+                gt_depth=None,  # depth_sample
+            )
+
+            sdf = self.sdf_map(pc)
+            # sdf = fc_map.chunks(pc, self.chunk_size, self.sdf_map)
+            depth_vals_vis = render.sdf_render_depth(z_vals, sdf)
+
+            depth_up = torch.nn.functional.interpolate(
+                depth_vals_vis.view(1, 1, self.H_vis, self.W_vis),
+                size=[self.H_vis_up, self.W_vis_up],
+                mode='bilinear', align_corners=True
+            )
+            depth_up = depth_up.view(-1)
+
+            pc_up, z_vals_up = sample.sample_along_rays(
+                T_WC,
+                depth_up - 0.1,
+                depth_up + 0.1,
+                n_stratified_samples=12,
+                n_surf_samples=12,
+                dirs_C=self.dirs_C_vis_up,
+            )
+            sdf_up = self.sdf_map(pc_up)
+            depth_vals = render.sdf_render_depth(z_vals_up, sdf_up)
+
+        surf_normals_C = render.render_normals(
+            T_WC, depth_vals[None, ...], self.sdf_map, self.dirs_C_vis_up)
+
+        # render_depth = torch.zeros(self.H_vis, self.W_vis)
+        # render_depth[valid_depth] = depth_vals.detach().cpu()
+        # render_depth = render_depth.numpy()
+        render_depth = depth_vals.view(self.H_vis_up, self.W_vis_up).cpu().numpy()
+        render_depth_viz = imgviz.depth2rgb(
+            render_depth, min_value=self.min_depth, max_value=self.max_depth)
+
+        surf_normals_C = (- surf_normals_C + 1.0) / 2.0
+        surf_normals_C = torch.clip(surf_normals_C, 0., 1.)
+        # normals_viz = torch.zeros(self.H_vis, self.W_vis, 3)
+        # normals_viz[valid_depth] = surf_normals_C.detach().cpu()
+        normals_viz = surf_normals_C.view(self.H_vis_up, self.W_vis_up, 3).detach().cpu()
+        normals_viz = (normals_viz.numpy() * 255).astype(np.uint8)
+
+        vis1 = np.hstack((image, depth_viz))[..., ::-1]
+        vis2 = np.hstack((normals_viz, render_depth_viz[..., ::-1]))
+        vis = np.vstack((vis1, vis2))
+
+        w_up = int(vis.shape[1] * 2)
+        h_up = int(vis.shape[0] * 2)
+        vis_up = cv2.resize(vis, (w_up, h_up))
+
+        elapsed = end_timing(start, end)
+        print("Time for live vis", elapsed)
+        return vis_up
+
+    def keyframe_vis(self, reduce_factor=2):
+        start, end = start_timing()
+
+        h, w = self.frames.im_batch_np.shape[1:3]
+        h = int(h / reduce_factor)
+        w = int(w / reduce_factor)
+
+        kf_vis = []
+        for i, kf in enumerate(self.frames.im_batch_np):
+            kf = cv2.resize(kf, (w, h))
+            kf = cv2.cvtColor(kf, cv2.COLOR_BGR2RGB)
+
+            pad_color = [255, 255, 255]
+            if self.active_idxs is not None and self.active_pixels is not None:
+                if i in self.active_idxs:
+                    pad_color = [0, 0, 139]
+
+                    # show sampled pixels
+                    act_inds_mask = self.active_pixels['indices_b'] == i
+                    h_inds = self.active_pixels['indices_h'][act_inds_mask]
+                    w_inds = self.active_pixels['indices_w'][act_inds_mask]
+                    mask = np.zeros([self.H, self.W])
+                    mask[h_inds.cpu().numpy(), w_inds.cpu().numpy()] = 1
+                    mask = ndimage.binary_dilation(mask, iterations=6)
+                    mask = (mask * 255).astype(np.uint8)
+                    mask = cv2.resize(mask, (w, h)).astype(np.bool)
+                    kf[mask, :] = [0, 0, 139]
+
+            kf = cv2.copyMakeBorder(
+                kf, 3, 3, 3, 3, cv2.BORDER_CONSTANT, value=pad_color)
+            kf = cv2.copyMakeBorder(
+                kf, 3, 3, 3, 3, cv2.BORDER_CONSTANT, value=[255, 255, 255])
+            kf_vis.append(kf)
+
+        kf_vis = np.hstack(kf_vis)
+        elapsed = end_timing(start, end)
+        print("Time for kf vis", elapsed)
+        return kf_vis
+
     def frames_vis(self):
         view_depths = self.render_depth_vis()
+        view_normals = self.render_normals_vis(view_depths)
+        view_depths = view_depths.cpu().numpy()
+        view_normals = view_normals.detach().cpu().numpy()
         gt_depth_ims = self.gt_depth_vis
         im_batch_np = self.gt_im_vis
 
         views = []
         for batch_i in range(len(self.frames)):
             depth = view_depths[batch_i]
-            depth_viz = imgviz.depth2rgb(depth)
+            depth_viz = imgviz.depth2rgb(
+                depth, min_value=self.min_depth, max_value=self.max_depth)
 
             gt = gt_depth_ims[batch_i]
-            gt_depth = imgviz.depth2rgb(gt)
+            gt_depth = imgviz.depth2rgb(
+                gt, min_value=self.min_depth, max_value=self.max_depth)
 
             loss = np.abs(gt - depth)
             loss[gt == 0] = 0
             loss_viz = imgviz.depth2rgb(loss)
 
-            visualisations = [gt_depth, depth_viz, loss_viz]
+            normals = view_normals[batch_i]
+            normals = (- normals + 1.0) / 2.0
+            normals = np.clip(normals, 0., 1.)
+            normals = (normals * 255).astype(np.uint8)
+
+            visualisations = [gt_depth, depth_viz, loss_viz, normals]
             if im_batch_np is not None:
                 visualisations.append(im_batch_np[batch_i])
 
@@ -992,17 +1224,32 @@ class Trainer():
                     grad=False,
                 )
 
-                with torch.set_grad_enabled(False):
-                    sdf = self.sdf_map(pc)
+                sdf = self.sdf_map(pc)
 
                 view_depth = render.sdf_render_depth(z_vals, sdf)
                 view_depth = view_depth.view(self.H_vis, self.W_vis)
                 view_depths.append(view_depth)
 
             view_depths = torch.stack(view_depths)
-            view_depths = view_depths.cpu().numpy()
-
         return view_depths
+
+    def render_normals_vis(self, view_depths):
+        view_normals = []
+
+        T_WC_batch = self.frames.T_WC_batch
+        if self.frames.T_WC_track:
+            T_WC_batch = self.frames.T_WC_track
+
+        for batch_i in range(len(self.frames)):  # loops through frames
+            T_WC = T_WC_batch[batch_i].unsqueeze(0)
+            view_depth = view_depths[batch_i]
+
+            surf_normals_C = render.render_normals(
+                T_WC, view_depth, self.sdf_map, self.dirs_C_vis[0])
+            view_normals.append(surf_normals_C)
+
+        view_normals = torch.stack(view_normals)
+        return view_normals
 
     def draw_3D(
         self,
@@ -1012,6 +1259,8 @@ class Trainer():
         show_gt_mesh=False,
         camera_view=True,
     ):
+        start, end = start_timing()
+
         scene = trimesh.Scene()
         scene.set_camera()
         scene.camera.focal = (self.fx, self.fy)
@@ -1043,27 +1292,30 @@ class Trainer():
                 )
 
         if show_pc:
+            if self.gt_depth_vis is None:
+                self.update_vis_vars()  # called in self.mesh_rec
             pcs_cam = geometry.transform.backproject_pointclouds(
                 self.gt_depth_vis, self.fx_vis, self.fy_vis,
                 self.cx_vis, self.cy_vis)
-            draw3D.draw_pc(
+            pc_w, colors = draw3D.draw_pc(
                 n_frames,
                 pcs_cam,
                 T_WC_np,
                 self.gt_im_vis,
-                scene
             )
+            pc = trimesh.PointCloud(pc_w, colors=colors)
+            scene.add_geometry(pc, geom_name='depth_pc')
 
         if show_mesh:
             sdf_mesh = self.mesh_rec()
-            scene.add_geometry(sdf_mesh)
+            scene.add_geometry(sdf_mesh, geom_name="rec_mesh")
 
         if show_gt_mesh:
             gt_mesh = trimesh.load(self.scene_file)
             gt_mesh.visual.material.image.putalpha(50)
             scene.add_geometry(gt_mesh)
 
-        if not camera_view:
+        if not camera_view and self.scene_center is not None:
             cam_pos = self.scene_center + self.up * 12 + np.array([3., 0., 0.])
             R, t = geometry.transform.look_at(
                 cam_pos, self.scene_center, -self.up)
@@ -1079,6 +1331,8 @@ class Trainer():
                 scene.camera_transform
                 @ trimesh.transformations.translation_matrix([0, 0, 0.1]))
 
+        elapsed = end_timing(start, end)
+        print(f'Time to draw scene: {elapsed}ms')
         return scene
 
     def draw_obj_3D(self, show_gt_mesh=True):
@@ -1173,30 +1427,56 @@ class Trainer():
         return sdf_grid_pc
 
     def view_sdf(self):
+        show_mesh = False if self.gt_scene else True
         scene = self.draw_3D(
-            False, False,
+            show_pc=True,
+            show_mesh=show_mesh,
             draw_cameras=True,
-            show_gt_mesh=True,
-            camera_view=False)
-        sdf_grid_pc = self.get_sdf_grid_pc(include_gt=True)
+            show_gt_mesh=self.gt_scene,
+            camera_view=True,
+        )
+        sdf_grid_pc = self.get_sdf_grid_pc(include_gt=False)
         sdf_grid_pc = np.transpose(sdf_grid_pc, (2, 1, 0, 3))
         # sdf_grid_pc = sdf_grid_pc[:, :, ::-1]  # for replica
         visualisation.sdf_viewer.SDFViewer(
             scene=scene, sdf_grid_pc=sdf_grid_pc,
-            tm_viewer=True, colormap=True, surface_cutoff=0.01
+            colormap=True, surface_cutoff=0.01
         )
 
     def mesh_rec(self):
         """
         Generate mesh reconstruction.
         """
+        if self.gt_scene is False and self.incremental:
+            self.update_vis_vars()
+            pcs_cam = geometry.transform.backproject_pointclouds(
+                self.gt_depth_vis, self.fx_vis, self.fy_vis,
+                self.cx_vis, self.cy_vis)
+            pc, _ = draw3D.draw_pc(
+                len(self.frames),
+                pcs_cam,
+                self.frames.T_WC_batch_np,
+                self.gt_im_vis,
+            )
+            pc_tm = trimesh.PointCloud(pc)
+            self.set_scene_properties(pc_tm)
+
         sdf = self.get_sdf_grid()
 
         sdf_mesh = draw3D.draw_mesh(
             sdf,
             self.scene_scale_np,
             self.bounds_transform_np,
+            color_by="normals",
         )
+
+
+        # reduce opacity for regions away from depth point cloud
+        tree = KDTree(pc)
+        dists, _ = tree.query(sdf_mesh.vertices, k=1)
+        far_ixs = dists > 0.1
+        sdf_mesh.visual.vertex_colors[far_ixs, 3] = 10
+
         return sdf_mesh
 
     def write_mesh(self, filename, im_pose=None):

@@ -97,7 +97,10 @@ def stratified_sample(
                 0, 1, n_bins + 1,
                 device=device)[None, :]
             bin_limits = bin_limits.repeat(n_rays, 1) * sample_range
-            bin_limits = bin_limits + min_depth
+            if isinstance(min_depth, torch.Tensor):
+                bin_limits = bin_limits + min_depth[:, None]
+            else:
+                bin_limits = bin_limits + min_depth
             bin_length = sample_range / (n_bins)
         else:
             bin_limits = torch.linspace(
@@ -147,7 +150,8 @@ def sample_along_rays(
         z_vals = stratified_sample(
             min_depth, max_depth,
             n_rays, T_WC.device,
-            n_stratified_samples, bin_length=None
+            n_stratified_samples,
+            bin_length=None,
         )
 
         # if gt_depth is given, first sample at surface then around surface
@@ -157,11 +161,13 @@ def sample_along_rays(
                 torch.zeros(gt_depth.shape[0], n_surf_samples - 1), 0.1
             ).to(z_vals.device)
             near_surf_z_vals = gt_depth[:, None] + offsets
+            if not isinstance(min_depth, torch.Tensor):
+                min_depth = torch.full(near_surf_z_vals.shape, min_depth).to(
+                    z_vals.device)[..., 0]
             near_surf_z_vals = torch.clamp(
                 near_surf_z_vals,
-                torch.full(near_surf_z_vals.shape, min_depth).to(
-                    z_vals.device),
-                max_depth[:, None]
+                min_depth[:, None],
+                max_depth[:, None],
             )
             z_vals = torch.cat(
                 (surface_z_vals[:, None], near_surf_z_vals, z_vals), dim=1)

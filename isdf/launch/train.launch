@@ -1,0 +1,12 @@
+<launch>
+    <arg name="show_orbslam_vis" default="true"/>
+
+    <!-- Launch ORB-SLAM3 which internally launches camera -->
+    <include file="$(find orb_slam3_ros_wrapper)/launch/run_realsense.launch">
+        <arg name="show_vis" value="$(arg show_orbslam_vis)"/>
+    </include>
+
+    <!-- Launch iSDF node -->
+	<node pkg="isdf" name="isdf_train" type="train.py" output="screen" args="--config $(find isdf)/train/configs/realsense.json"/>
+
+</launch>

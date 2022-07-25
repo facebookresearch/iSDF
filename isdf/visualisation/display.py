@@ -152,6 +152,8 @@ Usage:
                 window.rotate *= -1
         elif symbol == pyglet.window.key.H:
             print(usage())
+        elif symbol == pyglet.window.key.V:
+            print(usage())
 
     def callback(dt):
         if window.rotate:

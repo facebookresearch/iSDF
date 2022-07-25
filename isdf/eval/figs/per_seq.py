@@ -70,9 +70,9 @@ def do_plot(
     if surf.ndim == 2:
         std = np.nanstd(surf, axis=0)
         surf = np.nanmean(surf, axis=0)
-        ax[1, 0].fill_between(
+        ax[0, 1].fill_between(
             times, surf + std, surf - std, alpha=0.5, color=color)
-    ax[1, 0].plot(times, surf, color=color, linestyle=linestyle)
+    ax[0, 1].plot(times, surf, color=color, linestyle=linestyle)
 
     if obj_loss is not None:
         obj_loss = np.array(obj_loss) * 100
@@ -156,10 +156,10 @@ def draw_keyframes(fig, ax, ours_root, seq, seqs_dir, scannet_dir):
         a.remove()
     axbig = fig.add_subplot(gs[2, :])
     axbig.imshow(kfs[..., ::-1])
-    axbig.set_xlabel("Keyframe times (s)")
+    axbig.set_xlabel("Keyframe times (s)", fontsize=ax_label_fontsize)
     x_ticks = np.arange(len(kf_ixs)) * w + w / 2
     axbig.set_xticks(x_ticks)
-    axbig.set_xticklabels(kf_time_labels)
+    axbig.set_xticklabels(kf_time_labels, fontsize=ticks_fontsize)
     axbig.set_yticklabels([])
     axbig.set_yticks([])
 
@@ -193,6 +193,8 @@ def save_plots(
         nrows=nrows, ncols=ncols, figsize=(6 * ncols, 12))
     fig_vox, ax_vox = plt.subplots(
         nrows=nrows, ncols=ncols, figsize=(6 * ncols, 12))
+    fig_vis.subplots_adjust(hspace=0.3, wspace=0.23)
+    fig_vox.subplots_adjust(hspace=0.3, wspace=0.23)
 
     # Plot ours --------------------------------------------
 
@@ -264,9 +266,9 @@ def save_plots(
         ) = restructure_res(res, n_obj)
 
         do_plot(ax_vis, times, rays_vis_l1, surf_vis, bins_vis, obj_vis,
-                "C2", label="GPU fusion", col_offset=col_offset)
+                "C2", label="KinectFusion+", col_offset=col_offset)
         do_plot(ax_vox, times, rays_vox_l1, surf_vox, bins_vox, obj_vox,
-                "C2", label="GPU fusion", col_offset=col_offset)
+                "C2", label="KinectFusion+", col_offset=col_offset)
 
     # Plot voxblox --------------------------------------------
 
@@ -319,13 +321,13 @@ def save_plots(
                     obj_nn[i].append(np.nan)
                     obj_fill[i].append(np.nan)
 
-        do_plot(ax_vox, times, rays_vox_l1, surf_vox, bins_vox, obj_vox,
-                "C1", label="Voxblox", col_offset=col_offset)
+        # do_plot(ax_vox, times, rays_vox_l1, surf_vox, bins_vox, obj_vox,
+                # "C1", label="Voxblox", col_offset=col_offset)
         do_plot(ax_vis, times, rays_nn_l1, surf_nn, bins_nn, obj_nn,
                 "C1", label="Voxblox NN", col_offset=col_offset)
-        do_plot(ax_vis, times, rays_fill_l1, surf_fill, bins_fill, obj_fill,
-                "C1", label="Voxblox fill", linestyle="--",
-                col_offset=col_offset)
+        # do_plot(ax_vis, times, rays_fill_l1, surf_fill, bins_fill, obj_fill,
+        #         "C1", label="Voxblox fill", linestyle="--",
+        #         col_offset=col_offset)
 
     # Draw keyframes ------------------------------------------
     x_ticks, x_ticklabels = draw_keyframes(
@@ -341,45 +343,56 @@ def save_plots(
                 yticks = [1, 2, 5, 10, 20, 50, 100]
                 ytick_labels = [f'{y:.0f}' for y in yticks]
                 ax[r, c].set_yticks(yticks)
-                ax[r, c].set_yticklabels(ytick_labels)
+                ax[r, c].set_yticklabels(ytick_labels, fontsize=ticks_fontsize)
 
         ax[0, 0].title.set_text("Average")
-        ax[0, 0].set_ylabel("|SDF predicted - SDF GT| (cm)")
-        ax[0, 0].legend()
+        ax[0, 0].title.set_size(title_fontsize)
+        ax[0, 0].set_ylabel("SDF error [cm]", fontsize=ax_label_fontsize)
+        ax[0, 0].legend(fontsize=legend_fontsize)
+        ax[0, 0].set_xlabel("Keyframe times (s)", fontsize=ax_label_fontsize)
+
         [x.set_linewidth(3.) for x in ax[0, 0].spines.values()]
 
-        ax[1, 0].title.set_text("Surface (s = 0cm)")
-        ax[1, 0].set_ylabel("|SDF predicted - SDF GT| (cm)")
-        [x.set_linewidth(3.) for x in ax[1, 0].spines.values()]
+        ax[0, 1].title.set_text("Surface (s = 0cm)")
+        ax[0, 1].title.set_size(title_fontsize)
+        ax[0, 1].set_ylabel("SDF error [cm]", fontsize=ax_label_fontsize)
+        ax[1, 1].set_ylabel("SDF error [cm]", fontsize=ax_label_fontsize)
+        # [x.set_linewidth(3.) for x in ax[1, 0].spines.values()]
 
         if n_obj != 0:
             [x.set_linewidth(3.) for x in ax[0, 1].spines.values()]
             [x.set_linewidth(3.) for x in ax[1, 1].spines.values()]
             ax[0, 1].title.set_text("Object 1")
             ax[1, 1].title.set_text("Object 2")
+            ax[0, 1].title.set_size(title_fontsize)
+            ax[1, 1].title.set_size(title_fontsize)
+
 
         for c in range(ax.shape[1]):
-            ax[1, c].set_xlabel("Keyframe times (s)")
+            ax[1, c].set_xlabel("Keyframe times (s)", fontsize=ax_label_fontsize)
             ax[1, c].set_xticks(x_ticks)
-            ax[1, c].set_xticklabels(x_ticklabels)
+            ax[1, c].set_xticklabels(x_ticklabels, fontsize=ticks_fontsize)
             ax[0, c].set_xticks(x_ticks)
-            ax[0, c].set_xticklabels(x_ticklabels)
+            ax[0, c].set_xticklabels(x_ticklabels, fontsize=ticks_fontsize)
 
         bin_limits = np.array([-1e99, 0., 0.1, 0.2, 0.5, 1., 1e99]) * 100
         for j in range(len(bin_limits) - 1):
             r = j // 3
             c = j % 3 + col_offset
             if j == 0:
-                ax[r, c].title.set_text("s < {}cm".format(int(bin_limits[1])))
+                # ax[r, c].title.set_text("s < {}cm".format(int(bin_limits[1])))
+                pass
             elif j == len(bin_limits) - 2:
                 ax[r, c].title.set_text(
                     "{}cm <= s".format(int(bin_limits[-2])))
+                ax[r, c].title.set_size(title_fontsize)
             else:
                 ax[r, c].title.set_text(
                     "{}cm <= s < {}cm".format(
                         int(bin_limits[j]), int(bin_limits[j + 1])))
+                ax[r, c].title.set_size(title_fontsize)
             if j == 0:
-                ax[r, c].legend()
+                ax[r, c].legend(fontsize=legend_fontsize)
 
         if n_obj == 1:
             ax[1, 1].set_yscale('log')
@@ -395,6 +408,22 @@ def save_plots(
             ax[1, 1].set_xticklabels(["", ""])
             ax[1, 1].set_yticklabels(["", ""])
 
+        ax[1, 0].set_yscale('log')
+        ax[1, 0].title.set_text("")
+        ax[1, 0].plot([0, 1], [0, 1], color="white")
+        ax[1, 0].set_xlabel("")
+        ax[1, 0].set_ylabel("")
+        ax[1, 0].set_xlim([0, 1])
+        ax[1, 0].set_ylim([0, 1])
+        ax[1, 0].set_xticks([0, 1])
+        ax[1, 0].set_yticks([0, 1])
+        ax[1, 0].set_xticklabels(["", ""])
+        ax[1, 0].set_yticklabels(["", ""])
+        ax[1, 0].spines['top'].set_visible(False)
+        ax[1, 0].spines['right'].set_visible(False)
+        ax[1, 0].spines['bottom'].set_visible(False)
+        ax[1, 0].spines['left'].set_visible(False)
+
     fig_vis.savefig(save_dir + f"/{seq}_vis.png")
     fig_vox.savefig(save_dir + f"/{seq}_vox.png")
 
@@ -405,15 +434,20 @@ root = git.Repo(
     '.', search_parent_directories=True).working_tree_dir + "/"
 
 
-save_dir = root + "results/figs/per_seq_plots/"
-os.makedirs(save_dir)
+save_dir = root + "res/figs/per_seq_plots/"
+os.makedirs(save_dir, exist_ok=True)
 
-ours_root = root + "results/iSDF/batch_test/"
-voxblox_root = root + "results/voxblox/5.5cm/"
-gpuf_root = root + "results/kinectfusion+/7cm_unocc/"
+ours_root = root + "res/iSDF/best/"
+voxblox_root = root + "res/voxblox/gt_traj/0.055/"
+gpuf_root = root + "res/gpu_fusion/7cm_unocc/"
 
 scannet_dir = "/mnt/sda/ScanNet/scans/"
 seqs_dir = root + "/data/seqs/"
+
+title_fontsize = 16
+ax_label_fontsize = 15
+legend_fontsize = 15
+ticks_fontsize = 13
 
 # Sequences ----------------------------------------------
 
@@ -426,6 +460,8 @@ scanNet_seqs = ['scene0010_00', 'scene0030_00', 'scene0031_00',
 seqs = replicaCAD_seqs + scanNet_seqs
 n_objects = [1, 0, 2, 1, 0, 2, 0, 0, 0, 0, 0, 0]
 
+seqs = scanNet_seqs[1:2]
+n_objects = [0]
 
 for i in range(len(seqs)):
 
