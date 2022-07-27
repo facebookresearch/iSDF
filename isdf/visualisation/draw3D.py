@@ -103,7 +103,8 @@ def draw_pc(batch_size,
             scene.add_geometry(pc_tri)
 
     pcs_w = np.concatenate(pcs_w, axis=0)
-    cols = np.concatenate(cols)
+    if len(cols) != 0:
+        cols = np.concatenate(cols)
     return pcs_w, cols
 
 
