@@ -241,7 +241,7 @@ To launch run:
 roslaunch isdf train_franka.launch
 ```
 
-## Tabletop dataset script
+## [Tabletop dataset](https://drive.google.com/file/d/1tncMjkFLNlCZztTHwhO6Hn6EoEevGBDL/view?usp=sharing) script
 Even without access to a Franka, you can run franka iSDF on our tabletop dataset. The datset consists of 5 datalogs with tabletop [YCB](https://www.ycbbenchmarks.com/object-set/) objects and a 3D printed [Stanford bunny](http://graphics.stanford.edu/data/3Dscanrep/)). 
 To download the franka_realsense tabletop dataset (3.4GB):
 ```
