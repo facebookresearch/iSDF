@@ -11,6 +11,7 @@ todo.md
 data/gt_sdfs
 data/seqs
 data/eval_pts
+data/realsense_franka
 data/scannet_notes.txt
 
 isdf/datasets/examples/
