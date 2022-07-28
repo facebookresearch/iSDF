@@ -46,7 +46,7 @@ There are three options for running iSDF, chose the desired mode and then follow
 
 1. **[Running iSDF on sequences with pose provided](#1-running-isdf-on-sequences-with-pose-provided)**: for running iSDF on ScanNet and ReplicaCAD sequences used in the paper. 
 2. **[Running iSDF with a live camera in ROS](#2-running-isdf-with-a-live-camera-in-ros)**: a ros wrapper for iSDF subscribes to a topic of posed frames that is published by an ORB-SLAM3 wrapper.
-3. **[Running iSDF with a Franka + live camera in ROS](#3-running-isdf-with-a-franka-+-live-camera-in-ros)**: a ros wrapper for iSDF subscribes to a topic of realsense frames and poses from a calibrated realsense on a Franka Panda robot.
+3. **[Running iSDF with a Franka and live camera in ROS](#3-running-isdf-with-a-franka-and-live-camera-in-ros)**: a ros wrapper for iSDF subscribes to a topic of realsense frames and poses from a calibrated realsense on a Franka Panda robot.
 
 --- 
 
@@ -216,7 +216,7 @@ Current limitations:
 
 --- 
 
-## 3. Running iSDF with a Franka + live camera in ROS
+## 3. Running iSDF with a Franka and live camera in ROS
 
 <div align="center">
   <img src=".github/realsense_franka.gif"
