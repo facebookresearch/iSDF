@@ -242,8 +242,8 @@ roslaunch isdf train_franka.launch
 ```
 
 ## Tabletop dataset script
-Even without access to a Franka, you can run franka iSDF on our three collected datalogs. 
-To the franka_realsense dataset (XGB):
+Even without access to a Franka, you can run franka iSDF on our tabletop dataset. The datset consists of 5 datalogs with tabletop [YCB](https://www.ycbbenchmarks.com/object-set/) objects and a 3D printed [Stanford bunny](http://graphics.stanford.edu/data/3Dscanrep/)). 
+To download the franka_realsense tabletop dataset (3.4GB):
 ```
 bash data/download_franka.sh
 ```

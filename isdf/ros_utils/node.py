@@ -11,7 +11,7 @@ import cv2
 from orb_slam3_ros_wrapper.msg import frame
 from sensor_msgs.msg import Image # ROS message type
 from geometry_msgs.msg import Pose # ROS message type
-# from matplotlib import pyplot as plt
+from matplotlib import pyplot as plt
 
 class iSDFNode:
     
@@ -162,16 +162,16 @@ class iSDFFrankaNode:
         camera_world_rot = rot @ cam_ee_rot
         return camera_world_pos, camera_world_rot
 
-# def show_rgbd(rgb, depth, timestamp):
-#     plt.clf()
-#     plt.subplot(2, 1, 1)
-#     plt.imshow(rgb)
-#     plt.title('RGB ' + str(timestamp))
-#     plt.subplot(2, 1, 2)
-#     plt.imshow(depth)
-#     plt.title('Depth ' + str(timestamp))
-#     plt.draw()
-#     plt.pause(1e-6)
+def show_rgbd(rgb, depth, timestamp):
+    plt.clf()
+    plt.subplot(2, 1, 1)
+    plt.imshow(rgb)
+    plt.title('RGB ' + str(timestamp))
+    plt.subplot(2, 1, 2)
+    plt.imshow(depth)
+    plt.title('Depth ' + str(timestamp))
+    plt.draw()
+    plt.pause(1e-6)
 
 
 def get_latest_frame(q):
