@@ -221,9 +221,6 @@ Current limitations:
 <div align="center">
   <img src=".github/realsense_franka.gif"
   width="55%">
-  <figcaption>Franka integration was carried out by <a href="https://www.cs.cmu.edu/~sudhars1/">Sudharshan Suresh</a>, feel free to reach out with questions/comments. 
-</figcaption>
-
 </div>
 
 This runs similar to the live camera demo, but subscribes to Franka Panda inverse kinematics rather than ORB-SLAM. Additionally, this implementation has been tuned to work for tabletop scenes and is restricted to a defined workspace. Follow all instructions from the [previous section](#2-running-isdf-with-a-live-camera-in-ros), but the ORB-SLAM steps are not needed. The system requires the following: 
@@ -254,7 +251,7 @@ To launch run (select the `"seq_dir"` in `realsense_franka_offline.json`):
 ```
 roslaunch isdf train_franka.launch live:=false inc:=true
 ```
-
+Franka integration was carried out by [Sudharshan Suresh](https://www.cs.cmu.edu/~sudhars1/), feel free to reach out with questions/comments. 
 ## Citation
 
 ```

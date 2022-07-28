@@ -1492,12 +1492,12 @@ class Trainer():
             color_by="normals",
         )
 
-
-        # reduce opacity for regions away from depth point cloud
-        tree = KDTree(pc)
-        dists, _ = tree.query(sdf_mesh.vertices, k=1)
-        far_ixs = dists > 0.1
-        sdf_mesh.visual.vertex_colors[far_ixs, 3] = 10
+        if self.gt_scene is False and self.incremental:
+            # reduce opacity for regions away from depth point cloud
+            tree = KDTree(pc)
+            dists, _ = tree.query(sdf_mesh.vertices, k=1)
+            far_ixs = dists > 0.1
+            sdf_mesh.visual.vertex_colors[far_ixs, 3] = 10
 
         return sdf_mesh
 
