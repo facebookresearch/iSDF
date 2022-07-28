@@ -7,6 +7,6 @@
     </include>
 
     <!-- Launch iSDF node -->
-	<node pkg="isdf" name="isdf_train" type="train.py" output="screen" args="--config $(find isdf)/train/configs/realsense.json"/>
+	<node pkg="isdf" name="isdf_train" type="train_vis.py" output="screen" args="--config $(find isdf)/train/configs/realsense.json"/>
 
 </launch>
