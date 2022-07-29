@@ -26,6 +26,9 @@ def train(
     show_obj=False,
     update_im_freq=50,
     update_mesh_freq=200,
+    grid_dim = 200, 
+    # opt
+    extra_opt_steps = 400,
     # save
     save_path=None,
     use_tensorboard=False,
@@ -36,6 +39,7 @@ def train(
         config_file,
         chkpt_load_file=chkpt_load_file,
         incremental=incremental,
+        grid_dim = grid_dim
     )
 
     # saving init--------------------------------------------------------------
@@ -113,9 +117,9 @@ def train(
             if add_new_frame:
                 new_frame_id = isdf_trainer.get_latest_frame_id()
                 if new_frame_id >= size_dataset:
-                    break_at = t + 400
-                    print("**************************************",
-                          "End of sequence",
+                    break_at = t + extra_opt_steps
+                    print(f"**************************************",
+                          "End of sequence, runnining {extra_opt_steps} steps",
                           "**************************************")
                 else:
                     print("Total step time", isdf_trainer.tot_step_time)
@@ -297,7 +301,7 @@ if __name__ == "__main__":
     torch.manual_seed(seed)
 
     parser = argparse.ArgumentParser(description="iSDF.")
-    parser.add_argument("--config", type=str, help="input json config")
+    parser.add_argument("--config", type=str, required = True, help="input json config")
     parser.add_argument(
         "-ni",
         "--no_incremental",
@@ -358,10 +362,13 @@ if __name__ == "__main__":
                 on = False
 
     else:
+        # window size based on screen resolution
+        import tkinter as tk
+        w, h = tk.Tk().winfo_screenwidth(), tk.Tk().winfo_screenheight()
         n_cols = 2
         if show_obj:
             n_cols = 3
         tiling = (1, n_cols)
         visualisation.display.display_scenes(
-            scenes, height=int(680 * 0.7), width=int(1200 * 0.7), tile=tiling
+            scenes, height=int(h * 0.5), width=int(w * 0.5), tile=tiling
         )

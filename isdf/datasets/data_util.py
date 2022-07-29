@@ -122,6 +122,11 @@ def save_trajectory(traj, file_name, format="replica", timestamps=None):
             time = timestamps[idx]
             traj_file.write('{} '.format(time))
             np.savetxt(traj_file, T_WC[:3, :].reshape([1, 12]), fmt="%f")
+    elif format == "realsense_franka":
+        for idx, T_WC in enumerate(traj):
+            time = timestamps[idx]
+            traj_file.write('{} '.format(time))
+            np.savetxt(traj_file, T_WC.reshape([1, -1]), fmt="%f")
     elif format == "TUM":
         for idx, T_WC in enumerate(traj):
             quat = trimesh.transformations.quaternion_from_matrix(T_WC[:3, :3])

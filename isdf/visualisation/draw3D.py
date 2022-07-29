@@ -39,7 +39,7 @@ def draw_cameras_from_eyes(eyes, ats, up, scene):
         scene.add_geometry(marker)
 
 
-def draw_cams(batch_size, T_WC_batch_np, scene, color=None, latest_diff=True):
+def draw_cams(batch_size, T_WC_batch_np, scene, color=None, latest_diff=True, cam_scale = 1.0):
     no_color = color is None
     if no_color:
         color = (0.0, 1.0, 0.0, 0.8)
@@ -51,11 +51,11 @@ def draw_cams(batch_size, T_WC_batch_np, scene, color=None, latest_diff=True):
         camera = trimesh.scene.Camera(
             fov=scene.camera.fov, resolution=scene.camera.resolution
         )
-        marker_height = 0.3
+        marker_height = 0.3 * cam_scale
         if batch_i == batch_size - 1 and latest_diff:
             if no_color:
                 color = (1.0, 1.0, 1.0, 1.0)
-                marker_height = 0.5
+                marker_height = 0.5 * cam_scale
 
         marker = draw_camera(
             camera, T_WC, color=color, marker_height=marker_height
@@ -98,7 +98,7 @@ def draw_pc(batch_size,
         pc_tri = trimesh.PointCloud(vertices=pc_cam, colors=col)
         pc_tri.apply_transform(T_WC)
         pcs_w.append(pc_tri.vertices)
-
+        
         if scene is not None:
             scene.add_geometry(pc_tri)
 

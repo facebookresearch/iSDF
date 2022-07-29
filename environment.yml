@@ -183,4 +183,3 @@ dependencies:
     - werkzeug==2.0.1
     - widgetsnbextension==3.5.1
     - xxhash==2.0.2
-prefix: /home/joe/anaconda3new/envs/isdf
