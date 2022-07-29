@@ -46,7 +46,7 @@
         "n_rays": 200,
         "n_rays_is_kf": 400,
         "n_strat_samples": 19,
-        "n_surf_samples": 18,
+        "n_surf_samples": 8,
         "_depth_range": "[0.6, 6.0] for D455, [0.3, 3.0] for D435 ",
         "depth_range": [0.1, 2.0],
         "dist_behind_surf": 0.01
@@ -55,7 +55,7 @@
         "refine_poses": 0,
         "do_active": 0,
         "frac_time_perception": 1.0,
-        "scale_output": 1.0,
+        "scale_output": 0.14,
         "noise_std": 0.025,
         "noise_kf": 0.08,
         "noise_frame": 0.04,
@@ -77,8 +77,8 @@
     "loss": {
         "bounds_method": "ray",
         "loss_type": "L1",
-        "trunc_weight": 5.38344020,
-        "trunc_distance": 0.029365022,
+        "trunc_weight": 30.0,
+        "trunc_distance": 0.1,
         "eik_weight": 0.268,
         "eik_apply_dist": 0.1,
         "grad_weight": 0.018,

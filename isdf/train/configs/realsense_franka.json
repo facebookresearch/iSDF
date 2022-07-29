@@ -73,8 +73,8 @@
     "loss": {
         "bounds_method": "ray",
         "loss_type": "L1",
-        "trunc_weight": 5.38344020,
-        "trunc_distance": 0.029365022,
+        "trunc_weight": 30.0,
+        "trunc_distance": 0.1,
         "eik_weight": 0.268,
         "eik_apply_dist": 0.1,
         "grad_weight": 0.018,
