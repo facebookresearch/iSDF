@@ -7,7 +7,7 @@ cd data
 echo "Downloading the realsense_franka data ..."
 gdown https://drive.google.com/drive/folders/1tBk0W4wmytbISqSFg7A7eDvGcBt6uouJ?usp=sharing --folder
 echo "Start unzipping ..."
-unzip realsense_franka.zip
-rm realsense_franka.zip
+unzip -q franka_iSDF/realsense_franka.zip
+rm -R franka_iSDF
 cd ..
 echo "Sequence realsense_franka is ready!"

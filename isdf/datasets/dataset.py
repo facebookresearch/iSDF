@@ -273,7 +273,7 @@ class SceneCache(Dataset):
 class ROSSubscriber(Dataset):
     def __init__(
         self,
-        dataset_format=None,
+        extrinsic_calib=None,
         root_dir=None,
         traj_file=None,
         keep_ixs=None,
@@ -294,10 +294,10 @@ class ROSSubscriber(Dataset):
         torch.multiprocessing.set_start_method('spawn', force=True)
         self.queue = torch.multiprocessing.Queue(maxsize=1)
 
-        if dataset_format is not None:
+        if extrinsic_calib is not None:
             process = torch.multiprocessing.Process(
                 target=node.iSDFFrankaNode,
-                args=(self.queue, crop, dataset_format),
+                args=(self.queue, crop, extrinsic_calib),
             ) # subscribe to franka poses 
         else:
             process = torch.multiprocessing.Process(

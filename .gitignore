@@ -12,6 +12,7 @@ data/gt_sdfs
 data/seqs
 data/eval_pts
 data/realsense_franka
+data/**/**.mp4
 data/scannet_notes.txt
 
 isdf/datasets/examples/
