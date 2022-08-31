@@ -94,10 +94,8 @@ If using ScanNet data, then you must set the directory for the downloaded sequen
 
 ```
 cd isdf/train/
-python train.py --config configs/replicaCAD.json
+python train_vis.py --config configs/replicaCAD.json
 ```
-
-Press `s` to pause optimisation and view the reconstructed level set mesh.
 
 ### Reproducing experiments
 
@@ -144,6 +142,7 @@ chmod +x build.sh
 
 ##### ROS Noetic
 Follow [install instructions](http://wiki.ros.org/noetic/Installation).
+Also install catkin tools if not already installed: `sudo apt-get install python3-catkin-tools`.
 
 ##### Realsense camera
 ```

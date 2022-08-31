@@ -59,6 +59,7 @@ class Trainer():
         self.sdf_transform = None
 
         self.grid_dim = grid_dim
+        self.new_grid_dim = None
         self.chunk_size = 100000
 
         with open(config_file) as json_file:
@@ -672,6 +673,8 @@ class Trainer():
 
     def clear_keyframes(self):
         self.frames = FrameData()  # keyframes
+        self.gt_depth_vis = None
+        self.gt_im_vis = None
 
     # Main training methods ----------------------------------
 
@@ -1047,90 +1050,99 @@ class Trainer():
                 prev_im_gt_resize,
                 replace=replace)
 
-    def latest_frame_vis(self):
+    def latest_frame_vis(self, do_render=True):
         start, end = start_timing()
 
         # get latest frame from camera
-        data = self.scene_dataset[0]
+        if self.live:
+            data = self.scene_dataset[0]
+            image = data['image']
+            depth = data['depth']
+            T_WC_np = data['T']
+        else:
+            image = self.frames.im_batch_np[-1]
+            depth = self.frames.depth_batch_np[-1]
+            T_WC_np = self.frames.T_WC_batch_np[-1]
 
-        image = data['image']
-        depth = data['depth']
-        image = cv2.resize(image, (self.W_vis_up, self.H_vis_up))
-        depth = cv2.resize(depth, (self.W_vis_up, self.H_vis_up))
+        w = self.W_vis_up * 2
+        h = self.H_vis_up * 2
+        image = cv2.resize(image, (w, h))
+        depth = cv2.resize(depth, (w, h))
         depth_viz = imgviz.depth2rgb(
             depth, min_value=self.min_depth, max_value=self.max_depth)
         # depth_viz[depth == 0] = [0, 255, 0]
 
-        T_WC = data['T']
-        T_WC = torch.FloatTensor(T_WC).to(self.device)[None, ...]
+        rgbd_vis = np.hstack((image, depth_viz))
 
-        with torch.set_grad_enabled(False):
-            # efficient depth and normals render
-            # valid_depth = depth != 0.0
-            # depth_sample = torch.FloatTensor(depth).to(self.device)[valid_depth]
-            # max_depth = depth_sample + 0.5  # larger max depth for depth render            
-            # dirs_C = self.dirs_C_vis[0, valid_depth.flatten()]
+        if not do_render:
+            return rgbd_vis, None, T_WC_np
+        else:
+            T_WC = torch.FloatTensor(T_WC_np).to(self.device)[None, ...]
 
-            pc, z_vals = sample.sample_along_rays(
-                T_WC,
-                self.min_depth,
-                self.max_depth,
-                n_stratified_samples=20,
-                n_surf_samples=0,
-                dirs_C=self.dirs_C_vis,
-                gt_depth=None,  # depth_sample
-            )
+            with torch.set_grad_enabled(False):
+                # efficient depth and normals render
+                # valid_depth = depth != 0.0
+                # depth_sample = torch.FloatTensor(depth).to(self.device)[valid_depth]
+                # max_depth = depth_sample + 0.5  # larger max depth for depth render
+                # dirs_C = self.dirs_C_vis[0, valid_depth.flatten()]
 
-            sdf = self.sdf_map(pc)
-            # sdf = fc_map.chunks(pc, self.chunk_size, self.sdf_map)
-            depth_vals_vis = render.sdf_render_depth(z_vals, sdf)
+                pc, z_vals = sample.sample_along_rays(
+                    T_WC,
+                    self.min_depth,
+                    self.max_depth,
+                    n_stratified_samples=20,
+                    n_surf_samples=0,
+                    dirs_C=self.dirs_C_vis,
+                    gt_depth=None,  # depth_sample
+                )
 
-            depth_up = torch.nn.functional.interpolate(
-                depth_vals_vis.view(1, 1, self.H_vis, self.W_vis),
-                size=[self.H_vis_up, self.W_vis_up],
-                mode='bilinear', align_corners=True
-            )
-            depth_up = depth_up.view(-1)
+                sdf = self.sdf_map(pc)
+                # sdf = fc_map.chunks(pc, self.chunk_size, self.sdf_map)
+                depth_vals_vis = render.sdf_render_depth(z_vals, sdf)
 
-            pc_up, z_vals_up = sample.sample_along_rays(
-                T_WC,
-                depth_up - 0.1,
-                depth_up + 0.1,
-                n_stratified_samples=12,
-                n_surf_samples=12,
-                dirs_C=self.dirs_C_vis_up,
-            )
-            sdf_up = self.sdf_map(pc_up)
-            depth_vals = render.sdf_render_depth(z_vals_up, sdf_up)
+                depth_up = torch.nn.functional.interpolate(
+                    depth_vals_vis.view(1, 1, self.H_vis, self.W_vis),
+                    size=[self.H_vis_up, self.W_vis_up],
+                    mode='bilinear', align_corners=True
+                )
+                depth_up = depth_up.view(-1)
 
-        surf_normals_C = render.render_normals(
-            T_WC, depth_vals[None, ...], self.sdf_map, self.dirs_C_vis_up)
+                pc_up, z_vals_up = sample.sample_along_rays(
+                    T_WC,
+                    depth_up - 0.1,
+                    depth_up + 0.1,
+                    n_stratified_samples=12,
+                    n_surf_samples=12,
+                    dirs_C=self.dirs_C_vis_up,
+                )
+                sdf_up = self.sdf_map(pc_up)
+                depth_vals = render.sdf_render_depth(z_vals_up, sdf_up)
 
-        # render_depth = torch.zeros(self.H_vis, self.W_vis)
-        # render_depth[valid_depth] = depth_vals.detach().cpu()
-        # render_depth = render_depth.numpy()
-        render_depth = depth_vals.view(self.H_vis_up, self.W_vis_up).cpu().numpy()
-        render_depth_viz = imgviz.depth2rgb(
-            render_depth, min_value=self.min_depth, max_value=self.max_depth)
+            surf_normals_C = render.render_normals(
+                T_WC, depth_vals[None, ...], self.sdf_map, self.dirs_C_vis_up)
 
-        surf_normals_C = (- surf_normals_C + 1.0) / 2.0
-        surf_normals_C = torch.clip(surf_normals_C, 0., 1.)
-        # normals_viz = torch.zeros(self.H_vis, self.W_vis, 3)
-        # normals_viz[valid_depth] = surf_normals_C.detach().cpu()
-        normals_viz = surf_normals_C.view(self.H_vis_up, self.W_vis_up, 3).detach().cpu()
-        normals_viz = (normals_viz.numpy() * 255).astype(np.uint8)
+            # render_depth = torch.zeros(self.H_vis, self.W_vis)
+            # render_depth[valid_depth] = depth_vals.detach().cpu()
+            # render_depth = render_depth.numpy()
+            render_depth = depth_vals.view(self.H_vis_up, self.W_vis_up).cpu().numpy()
+            render_depth_viz = imgviz.depth2rgb(
+                render_depth, min_value=self.min_depth, max_value=self.max_depth)
 
-        vis1 = np.hstack((image, depth_viz))[..., ::-1]
-        vis2 = np.hstack((normals_viz, render_depth_viz[..., ::-1]))
-        vis = np.vstack((vis1, vis2))
+            surf_normals_C = (- surf_normals_C + 1.0) / 2.0
+            surf_normals_C = torch.clip(surf_normals_C, 0., 1.)
+            # normals_viz = torch.zeros(self.H_vis, self.W_vis, 3)
+            # normals_viz[valid_depth] = surf_normals_C.detach().cpu()
+            normals_viz = surf_normals_C.view(self.H_vis_up, self.W_vis_up, 3).detach().cpu()
+            normals_viz = (normals_viz.numpy() * 255).astype(np.uint8)
 
-        w_up = int(vis.shape[1] * 2)
-        h_up = int(vis.shape[0] * 2)
-        vis_up = cv2.resize(vis, (w_up, h_up))
+            render_vis = np.hstack((normals_viz, render_depth_viz))
+            w_up = int(render_vis.shape[1] * 2)
+            h_up = int(render_vis.shape[0] * 2)
+            render_vis = cv2.resize(render_vis, (w_up, h_up))
 
-        elapsed = end_timing(start, end)
-        print("Time for live vis", elapsed)
-        return vis_up
+            elapsed = end_timing(start, end)
+            print("Time for depth and normal render", elapsed)
+            return rgbd_vis, render_vis, T_WC_np
 
     def keyframe_vis(self, reduce_factor=2):
         start, end = start_timing()
@@ -1429,7 +1441,7 @@ class Trainer():
 
         return sdf
 
-    def get_sdf_grid_pc(self, include_gt=False):
+    def get_sdf_grid_pc(self, include_gt=False, mask_near_pc=False):
         sdf_grid = self.get_sdf_grid()
         grid_pc = self.grid_pc.reshape(
             self.grid_dim, self.grid_dim, self.grid_dim, 3)
@@ -1446,7 +1458,25 @@ class Trainer():
                 (sdf_grid_pc, gt_sdf[..., None]), axis=-1)
             self.gt_sdf_interp.bounds_error = True
 
-        return sdf_grid_pc
+        keep_mask = None
+        if mask_near_pc:
+            self.update_vis_vars()
+            pcs_cam = geometry.transform.backproject_pointclouds(
+                self.gt_depth_vis, self.fx_vis, self.fy_vis,
+                self.cx_vis, self.cy_vis)
+            pc, _ = draw3D.draw_pc(
+                len(self.frames),
+                pcs_cam,
+                self.frames.T_WC_batch_np,
+            )
+            tree = KDTree(pc)
+            sparse_grid = sdf_grid_pc[::10, ::10, ::10, :3]
+            dists, _ = tree.query(sparse_grid.reshape(-1, 3), k=1)
+            dists = dists.reshape(sparse_grid.shape[:-1])
+            keep_mask = dists < 0.25
+            keep_mask = keep_mask.repeat(10, axis=0).repeat(10, axis=1).repeat(10, axis=2)
+
+        return sdf_grid_pc, keep_mask
 
     def view_sdf(self):
         show_mesh = False if self.gt_scene else True
@@ -1457,7 +1487,7 @@ class Trainer():
             show_gt_mesh=self.gt_scene,
             camera_view=True,
         )
-        sdf_grid_pc = self.get_sdf_grid_pc(include_gt=False)
+        sdf_grid_pc, _ = self.get_sdf_grid_pc(include_gt=False)
         sdf_grid_pc = np.transpose(sdf_grid_pc, (2, 1, 0, 3))
         # sdf_grid_pc = sdf_grid_pc[:, :, ::-1]  # for replica
         visualisation.sdf_viewer.SDFViewer(
@@ -1465,21 +1495,21 @@ class Trainer():
             colormap=True, surface_cutoff=0.01
         )
 
-    def mesh_rec(self):
+    def mesh_rec(self, crop_mesh_with_pc=True):
         """
         Generate mesh reconstruction.
         """
+        self.update_vis_vars()
+        pcs_cam = geometry.transform.backproject_pointclouds(
+            self.gt_depth_vis, self.fx_vis, self.fy_vis,
+            self.cx_vis, self.cy_vis)
+        pc, _ = draw3D.draw_pc(
+            len(self.frames),
+            pcs_cam,
+            self.frames.T_WC_batch_np,
+        )
+
         if self.gt_scene is False and self.incremental:
-            self.update_vis_vars()
-            pcs_cam = geometry.transform.backproject_pointclouds(
-                self.gt_depth_vis, self.fx_vis, self.fy_vis,
-                self.cx_vis, self.cy_vis)
-            pc, _ = draw3D.draw_pc(
-                len(self.frames),
-                pcs_cam,
-                self.frames.T_WC_batch_np,
-                self.gt_im_vis,
-            )
             pc_tm = trimesh.PointCloud(pc)
             self.set_scene_properties(pc_tm)
 
@@ -1489,15 +1519,23 @@ class Trainer():
             sdf,
             self.scene_scale_np,
             self.bounds_transform_np,
-            color_by="normals",
+            color_by="none",
         )
 
-        if self.gt_scene is False and self.incremental:
-            # reduce opacity for regions away from depth point cloud
+        if crop_mesh_with_pc:
             tree = KDTree(pc)
             dists, _ = tree.query(sdf_mesh.vertices, k=1)
-            far_ixs = dists > 0.1
-            sdf_mesh.visual.vertex_colors[far_ixs, 3] = 10
+            keep_ixs = dists < 0.25
+            face_mask = keep_ixs[sdf_mesh.faces].any(axis=1)
+            sdf_mesh.update_faces(face_mask)
+            sdf_mesh.remove_unreferenced_vertices()
+            # sdf_mesh.visual.vertex_colors[~keep_ixs, 3] = 10
+
+        if self.new_grid_dim is not None:
+            self.grid_dim = self.new_grid_dim
+            self.grid_pc = self.new_grid_pc
+            self.new_grid_dim = None
+            self.new_grid_pc = None
 
         return sdf_mesh
 

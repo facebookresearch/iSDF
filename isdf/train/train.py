@@ -11,7 +11,6 @@ import os
 from datetime import datetime
 import argparse
 import cv2
-from torch.utils.tensorboard import SummaryWriter
 
 from isdf import visualisation
 from isdf.modules import trainer
@@ -31,7 +30,6 @@ def train(
     extra_opt_steps = 400,
     # save
     save_path=None,
-    use_tensorboard=False,
 ):
     # init trainer-------------------------------------------------------------
     isdf_trainer = trainer.Trainer(
@@ -59,10 +57,6 @@ def train(
         if isdf_trainer.save_meshes:
             mesh_path = os.path.join(save_path, 'meshes')
             os.makedirs(mesh_path)
-
-        writer = None
-        if use_tensorboard:
-            writer = SummaryWriter(save_path)
 
     # eval init--------------------------------------------------------------
     if isdf_trainer.do_eval:
@@ -144,10 +138,6 @@ def train(
             status = [k + ': {:.6f}  '.format(losses[k]) for k in losses.keys()]
             status = "".join(status) + '-- Step time: {:.2f}  '.format(step_time)
             print(t, status)
-
-        if save and writer is not None:
-            for key in losses.keys():
-                writer.add_scalar("losses/{key}", losses[key], t)
 
         # visualisation----------------------------------------------------------
         if (
@@ -287,10 +277,6 @@ def train(
             if save:
                 with open(os.path.join(save_path, 'res.json'), 'w') as f:
                     json.dump(res, f, indent=4)
-                if writer is not None:
-                    writer.add_scalar(
-                        "sdf_error_visible/average", visible_res["av_l1"], t)
-
 
 
 if __name__ == "__main__":
@@ -330,7 +316,6 @@ if __name__ == "__main__":
 
     # save
     save = False
-    use_tensorboard = False
     if save:
         now = datetime.now()
         time_str = now.strftime("%m-%d-%y_%H-%M-%S")
@@ -350,7 +335,6 @@ if __name__ == "__main__":
         update_mesh_freq=update_mesh_freq,
         # save
         save_path=save_path,
-        use_tensorboard=use_tensorboard,
     )
 
     if headless:
