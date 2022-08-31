@@ -29,6 +29,10 @@ scene0004_00: 9.55m
 scene0005_00: 5.40m
 scene0009_00: 7.00m
 
+### [Tabletop dataset](https://drive.google.com/file/d/1tncMjkFLNlCZztTHwhO6Hn6EoEevGBDL/view?usp=sharing)
+
+The tabletop dataset consists of 5 short trajectories we collect on the Franka mounted with a Realsense camera. We scan an assortment of [YCB](https://www.ycbbenchmarks.com/object-set/) objects and a 3D printed [Stanford bunny](http://graphics.stanford.edu/data/3Dscanrep/).
+
 ## Ground truth SDF generation
 
 Instructions coming soon.

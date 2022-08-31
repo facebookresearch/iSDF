@@ -152,6 +152,8 @@ class Trainer():
         self.grid_up = self.bounds_transform_np[:3, self.up_ix]
         self.up_aligned = np.dot(self.grid_up, self.up) > 0
 
+        self.crop_dist = 0.1 if "franka" in self.dataset_format else 0.25
+
     def set_params(self):
         # Dataset
         # require dataset format, depth scale and camera params
@@ -1298,7 +1300,7 @@ class Trainer():
 
         if draw_cameras:
             n_frames = len(self.frames)
-            cam_scale = 0.5 if "franka" in self.dataset_format else 1.0
+            cam_scale = 0.25 if "franka" in self.dataset_format else 1.0
             draw3D.draw_cams(
                 n_frames, T_WC_np, scene, color=(0.0, 1.0, 0.0, 1.0), cam_scale = cam_scale)
 
@@ -1473,7 +1475,7 @@ class Trainer():
             sparse_grid = sdf_grid_pc[::10, ::10, ::10, :3]
             dists, _ = tree.query(sparse_grid.reshape(-1, 3), k=1)
             dists = dists.reshape(sparse_grid.shape[:-1])
-            keep_mask = dists < 0.25
+            keep_mask = dists < self.crop_dist
             keep_mask = keep_mask.repeat(10, axis=0).repeat(10, axis=1).repeat(10, axis=2)
 
         return sdf_grid_pc, keep_mask
@@ -1525,7 +1527,7 @@ class Trainer():
         if crop_mesh_with_pc:
             tree = KDTree(pc)
             dists, _ = tree.query(sdf_mesh.vertices, k=1)
-            keep_ixs = dists < 0.25
+            keep_ixs = dists < self.crop_dist
             face_mask = keep_ixs[sdf_mesh.faces].any(axis=1)
             sdf_mesh.update_faces(face_mask)
             sdf_mesh.remove_unreferenced_vertices()

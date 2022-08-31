@@ -9,11 +9,11 @@
         <arg name="inc" default="false"/>
         <group if="$(arg inc)">
             <!-- Launch offline iSDF Franka node incremental-->
-            <node pkg="isdf" name="isdf_train" type="train.py" output="screen" args="--config $(find isdf)/train/configs/realsense_franka_offline.json"/>
+            <node pkg="isdf" name="isdf_train" type="train_vis.py" output="screen" args="--config $(find isdf)/train/configs/realsense_franka_offline.json"/>
         </group>
         <group unless="$(arg inc)">
             <!-- Launch offline iSDF Franka node batch-->
-            <node pkg="isdf" name="isdf_train" type="train.py" output="screen" args="--config $(find isdf)/train/configs/realsense_franka_offline.json -ni"/>
+            <node pkg="isdf" name="isdf_train" type="train_vis.py" output="screen" args="--config $(find isdf)/train/configs/realsense_franka_offline.json -ni"/>
         </group>
     </group>
 </launch>

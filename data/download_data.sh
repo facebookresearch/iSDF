@@ -6,6 +6,10 @@
 cd data
 echo "Downloading the sequences and ground truth SDFs ..."
 gdown https://drive.google.com/drive/folders/1nzAVDInjDwt_GFehyhkOZvXrRJ33FCaR?usp=sharing --folder
+mv data_full/seqs.zip seqs.zip
+mv data_full/gt_sdfs.zip gt_sdfs.zip
+mv data_full/eval_pts.zip eval_pts.zip
+rm -R data_full
 echo "Start unzipping ..."
 unzip seqs.zip
 unzip gt_sdfs.zip

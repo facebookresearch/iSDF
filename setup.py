@@ -22,4 +22,5 @@ setup(
     version=version,
     author='Joe Ortiz',
     author_email='joeaortiz16@gmail.com',
+    py_modules=[]
 )
