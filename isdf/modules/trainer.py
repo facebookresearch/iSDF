@@ -81,6 +81,8 @@ class Trainer():
             scene_mesh = trimesh.exchange.load.load(
                 self.scene_file, process=False)
             self.set_scene_properties(scene_mesh)
+        if self.dataset_format == "realsense_franka_offline":
+            self.set_scene_properties()
 
         self.load_networks()
         if chkpt_load_file is not None:
@@ -98,7 +100,7 @@ class Trainer():
     def get_latest_frame_id(self):
         return int(self.tot_step_time * self.fps)
 
-    def set_scene_properties(self, scene_mesh):
+    def set_scene_properties(self, scene_mesh = None):
         # if self.live:
         #     # bounds is axis algined, camera initial pose defines origin
         #     ax_aligned_box = scene_mesh.bounding_box
@@ -109,8 +111,16 @@ class Trainer():
         # the center of the bounding box of the mesh to the origin.
         # bounds_extents is the extents of the mesh once transformed
         # with bounds_transform
-        T_extent_to_scene, bounds_extents = \
-            trimesh.bounds.oriented_bounds(scene_mesh)
+        if "realsense_franka" in self.dataset_format:
+            # define our own workspace bounds 
+            T_extent_to_scene = trimesh.transformations.rotation_matrix(np.deg2rad(self.config["workspace"]["rotate_z"]), [0, 0, 1]) # flip workspace
+            T_extent_to_scene[:3, 3] = np.array(self.config["workspace"]["offset"])
+            bounds_extents = np.array(self.config["workspace"]["extents"])
+            self.scene_center = np.array(self.config["workspace"]["center"])
+        else:
+            T_extent_to_scene, bounds_extents = \
+                trimesh.bounds.oriented_bounds(scene_mesh)
+            self.scene_center = scene_mesh.bounds.mean(axis=0)
 
         self.inv_bounds_transform = torch.from_numpy(
             T_extent_to_scene).float().to(self.device)
@@ -128,8 +138,6 @@ class Trainer():
             self.scene_scale_np).float().to(self.device)
         self.inv_scene_scale = 1. / self.scene_scale
 
-        self.scene_center = scene_mesh.bounds.mean(axis=0)
-
         self.grid_pc = geometry.transform.make_3D_grid(
             grid_range,
             self.grid_dim,
@@ -144,13 +152,19 @@ class Trainer():
         self.grid_up = self.bounds_transform_np[:3, self.up_ix]
         self.up_aligned = np.dot(self.grid_up, self.up) > 0
 
+        self.crop_dist = 0.1 if "franka" in self.dataset_format else 0.25
+
     def set_params(self):
         # Dataset
         # require dataset format, depth scale and camera params
         self.dataset_format = self.config["dataset"]["format"]
         self.live = False
-        if self.dataset_format in ["arkit", "realsense"]:
+        if self.dataset_format in ["arkit", "realsense", "realsense_franka"]:
             self.live = True
+        if "realsense_franka" in self.dataset_format:
+            self.ext_calib = self.config["ext_calib"]
+        else: 
+            self.ext_calib = None
         self.inv_depth_scale = 1. / self.config["dataset"]["depth_scale"]
         self.distortion_coeffs = []
         if self.dataset_format == "ScanNet":
@@ -179,7 +193,9 @@ class Trainer():
         if not self.live:
             self.seq_dir = self.config["dataset"]["seq_dir"]
             self.seq = [x for x in self.seq_dir.split('/') if x != ''][-1]
-            self.ims_file = os.path.join(self.seq_dir, "results")
+            self.ims_file = self.seq_dir
+            if self.dataset_format != "realsense_franka_offline":
+                self.ims_file = os.path.join(self.ims_file, "results")
             self.fps = self.config["dataset"]["fps"]
 
             self.obj_bounds_file = None
@@ -470,18 +486,19 @@ class Trainer():
             self.up = np.array([0., 0., 1.])
             ims_file = None
             self.traj_file = None
-        elif self.dataset_format == "realsense":
+        elif self.dataset_format in ["realsense", "realsense_franka"]:
             dataset_class = dataset.ROSSubscriber
             col_ext = None
             self.up = np.array([0., 0., 1.])
-            ims_file = None
+            ims_file =  self.ext_calib # extrinsic calib 
             self.traj_file = None
             camera_matrix = np.array([[self.fx, 0.0, self.cx], [0.0, self.fy, self.cy], [0.0, 0.0, 1.0]])
-        elif self.dataset_format == "robopen":
-            dataset_class = dataset.ReplicaDataset
-            col_ext = ".png"
+        elif self.dataset_format == "realsense_franka_offline":
+            dataset_class = dataset.RealsenseFrankaOffline
+            col_ext = ".jpg"
             self.up = np.array([0., 0., 1.])
             ims_file = self.ims_file
+            camera_matrix = np.array([[self.fx, 0.0, self.cx], [0.0, self.fy, self.cy], [0.0, 0.0, 1.0]])
 
         self.scene_dataset = dataset_class(
             ims_file,
@@ -496,15 +513,14 @@ class Trainer():
 
         if self.incremental is False:
             if "im_indices" not in self.config["dataset"]:
-                if "n_random_views" in self.config["dataset"]:
-                    n_random_views = self.config["dataset"]["n_random_views"]
-                    if n_random_views > 0:
+                if "n_views" in self.config["dataset"]:
+                    n_views = self.config["dataset"]["n_views"]
+                    if n_views > 0:
                         n_dataset = len(self.scene_dataset)
-                        self.indices = np.random.choice(
-                            np.arange(0, n_dataset),
-                            size=n_random_views,
-                            replace=False)
-
+                        if self.config["dataset"]["random_views"]:
+                            self.indices = np.random.choice(np.arange(0, n_dataset), size=n_views, replace=False)
+                        else:
+                            self.indices = np.linspace(0, n_dataset, n_views, dtype = int, endpoint= False)
             print("Frame indices", self.indices)
             self.last_is_keyframe = True
             idxs = self.indices
@@ -1270,7 +1286,7 @@ class Trainer():
         draw_cameras=False,
         show_gt_mesh=False,
         camera_view=True,
-    ):
+    ):  
         start, end = start_timing()
 
         scene = trimesh.Scene()
@@ -1284,16 +1300,17 @@ class Trainer():
 
         if draw_cameras:
             n_frames = len(self.frames)
+            cam_scale = 0.25 if "franka" in self.dataset_format else 1.0
             draw3D.draw_cams(
-                n_frames, T_WC_np, scene, color=(0.0, 1.0, 0.0, 1.0))
+                n_frames, T_WC_np, scene, color=(0.0, 1.0, 0.0, 1.0), cam_scale = cam_scale)
 
             if self.frames.T_WC_gt:  # show gt and input poses too
                 draw3D.draw_cams(
                     n_frames, self.frames.T_WC_gt, scene,
-                    color=(1.0, 0.0, 1.0, 0.8))
+                    color=(1.0, 0.0, 1.0, 0.8), cam_scale = cam_scale)
                 draw3D.draw_cams(
                     n_frames, self.frames.T_WC_batch_np, scene,
-                    color=(1., 0., 0., 0.8))
+                    color=(1., 0., 0., 0.8), cam_scale = cam_scale)
 
             if self.incremental:
                 trajectory_gt = self.frames.T_WC_batch_np[:, :3, 3]
@@ -1319,8 +1336,12 @@ class Trainer():
             scene.add_geometry(pc, geom_name='depth_pc')
 
         if show_mesh:
-            sdf_mesh = self.mesh_rec()
-            scene.add_geometry(sdf_mesh, geom_name="rec_mesh")
+            try:
+                sdf_mesh = self.mesh_rec()
+                scene.add_geometry(sdf_mesh, geom_name="rec_mesh")
+            except ValueError: # ValueError: Surface level must be within volume data range.
+                print("ValueError: Surface level must be within volume data range.")
+                pass
 
         if show_gt_mesh:
             gt_mesh = trimesh.load(self.scene_file)
@@ -1328,7 +1349,10 @@ class Trainer():
             scene.add_geometry(gt_mesh)
 
         if not camera_view and self.scene_center is not None:
-            cam_pos = self.scene_center + self.up * 12 + np.array([3., 0., 0.])
+            if "realsense_franka" in self.dataset_format:
+                cam_pos = self.scene_center + self.up * 1 + np.array([1, -1, 0.])
+            else:
+                cam_pos = self.scene_center + self.up * 12 + np.array([3., 0., 0.])
             R, t = geometry.transform.look_at(
                 cam_pos, self.scene_center, -self.up)
             T = np.eye(4)
@@ -1451,7 +1475,7 @@ class Trainer():
             sparse_grid = sdf_grid_pc[::10, ::10, ::10, :3]
             dists, _ = tree.query(sparse_grid.reshape(-1, 3), k=1)
             dists = dists.reshape(sparse_grid.shape[:-1])
-            keep_mask = dists < 0.25
+            keep_mask = dists < self.crop_dist
             keep_mask = keep_mask.repeat(10, axis=0).repeat(10, axis=1).repeat(10, axis=2)
 
         return sdf_grid_pc, keep_mask
@@ -1503,7 +1527,7 @@ class Trainer():
         if crop_mesh_with_pc:
             tree = KDTree(pc)
             dists, _ = tree.query(sdf_mesh.vertices, k=1)
-            keep_ixs = dists < 0.25
+            keep_ixs = dists < self.crop_dist
             face_mask = keep_ixs[sdf_mesh.faces].any(axis=1)
             sdf_mesh.update_faces(face_mask)
             sdf_mesh.remove_unreferenced_vertices()

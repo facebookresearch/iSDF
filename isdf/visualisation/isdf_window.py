@@ -313,6 +313,8 @@ class iSDFWindow:
         self.unlit_mat.shader = "unlitLine"
         self.unlit_mat.line_width = 5.0
 
+        self.cam_scale = 0.1 if "franka" in trainer.dataset_format else 0.2
+
         # Start running
         threading.Thread(name='UpdateMain', target=self.update_main).start()
 
@@ -643,7 +645,7 @@ class iSDFWindow:
                         self.intrinsic.height,
                         self.intrinsic.intrinsic_matrix,
                         np.linalg.inv(self.T_WC_latest),
-                        scale=0.2,
+                        scale=self.cam_scale,
                     )
                     latest_frustum.paint_uniform_color([0.961, 0.475, 0.000])
                 self.latest_frustum = latest_frustum
@@ -778,7 +780,7 @@ class iSDFWindow:
                 self.intrinsic.height,
                 self.intrinsic.intrinsic_matrix,
                 np.linalg.inv(T_WC),
-                scale=0.2,
+                scale=self.cam_scale,
             )
             frustum.paint_uniform_color([0.000, 0.475, 0.900])
             kf_frustums.append(frustum)

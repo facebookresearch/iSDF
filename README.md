@@ -40,13 +40,15 @@ ReplicaCAD             |  ScanNet
 ![Alt Text](.github/replicaCAD.gif)  |  ![Alt Text](.github/scanNet.gif)
 
 
-## Two iSDF Modes 
+## Three iSDF Modes 
 
-There're two options for running iSDF, chose the desired mode and then follow **only** instructions in that section:
+There are three options for running iSDF, chose the desired mode and then follow **only** instructions in that section:
 
 1. **[Running iSDF on sequences with pose provided](#1-running-isdf-on-sequences-with-pose-provided)**: for running iSDF on ScanNet and ReplicaCAD sequences used in the paper. 
 2. **[Running iSDF with a live camera in ROS](#2-running-isdf-with-a-live-camera-in-ros)**: a ros wrapper for iSDF subscribes to a topic of posed frames that is published by an ORB-SLAM3 wrapper.
+3. **[Running iSDF with a Franka and live camera in ROS](#3-running-isdf-with-a-franka-and-live-camera-in-ros)**: a ros wrapper for iSDF subscribes to a topic of realsense frames and poses from a calibrated realsense on a Franka Panda robot.
 
+--- 
 
 ## 1. Running iSDF on sequences with pose provided
 
@@ -117,6 +119,8 @@ We provide the script to generate plots comparing SDF error, collision cost erro
 ```
 python isdf/eval/figs/all_seq.py
 ```
+
+--- 
 
 ## 2. Running iSDF with a live camera in ROS
 
@@ -209,6 +213,44 @@ Current limitations:
 - iSDF runs in a single thread and alternates between training (optimising the map) and updating the live visualisation. You can change the frequency of the live visualisation updates, however if set too high, training can become slow.
 - The live visualistaion of the rendered depth and normals from the current view uses a very basic depth rendering method. This can lead to artifacts in the render even if the geometry is good. We plan to improve the depth rendering soon.
 
+--- 
+
+## 3. Running iSDF with a Franka and live camera in ROS
+
+<div align="center">
+  <img src=".github/realsense_franka.gif"
+  width="55%">
+</div>
+
+This runs similar to the live camera demo, but subscribes to Franka Panda inverse kinematics rather than ORB-SLAM. Additionally, this implementation has been tuned to work for tabletop scenes and is restricted to a defined workspace. Follow all instructions from the [previous section](#2-running-isdf-with-a-live-camera-in-ros), but the ORB-SLAM steps are not needed. The system requires the following: 
+- Extrinsic calibration of the realsense w.r.t. the robot base : use the [eyehandcal](https://github.com/facebookresearch/fairo/tree/main/perception/sandbox/eyehandcal) repository. 
+  - Run the automatic script using the `--proj-fun world_marker_proj_hand_camera`. 
+  - Copy the contexts of `calibration.json` and add it to `"ext_calib"` in `isdf/train/configs/realsense_franka.json`
+- Live ROS topics for rgb, depth, and EE poses of the Franka.
+  -  With our modified [franka control](https://github.com/suddhu/franka_control) you can record kinesthetic demonstratations. Please refer to the repository for dependencies and setup. 
+  -  When you replay them with `playback.py` they publish the live posed frames. 
+
+## Live script 
+After recording the kinesthetic demo with `franka_control`, run the repository's playback script:
+```
+python playback.py xx/yy.npz
+```
+To launch run: 
+```
+roslaunch isdf train_franka.launch
+```
+
+## [Tabletop dataset](https://drive.google.com/file/d/1tncMjkFLNlCZztTHwhO6Hn6EoEevGBDL/view?usp=sharing) script
+Even without access to a Franka, you can run franka iSDF on our tabletop dataset. The datset consists of 5 datalogs with tabletop [YCB](https://www.ycbbenchmarks.com/object-set/) objects and a 3D printed [Stanford bunny](http://graphics.stanford.edu/data/3Dscanrep/)). 
+To download the franka_realsense tabletop dataset (3.4GB):
+```
+bash data/download_franka.sh
+```
+To launch run (select the `"seq_dir"` in `realsense_franka_offline.json`): 
+```
+roslaunch isdf train_franka.launch live:=false inc:=true
+```
+Franka integration was carried out by [Sudharshan Suresh](https://www.cs.cmu.edu/~sudhars1/), feel free to reach out with questions/comments. 
 ## Citation
 
 ```
