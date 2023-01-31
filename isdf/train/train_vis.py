@@ -16,6 +16,22 @@ import open3d.visualization.gui as gui
 from isdf.visualisation import isdf_window
 from isdf.modules import trainer
 
+import pickle
+
+def pickleLoader(pklFile):
+    try:
+        while True:
+            yield pickle.load(pklFile)
+    except EOFError:
+        pass
+
+pc = []
+robot_T_camera = []
+
+with open("dump1.pkl", "rb") as f:
+    for i, data in enumerate(pickleLoader(f)): 
+        pc.append(data['pc'][:,:3])
+        robot_T_camera.append(data['robot_T_camera'])
 
 def optim_iter(trainer, t):
     # get/add data---------------------------------------------------------
@@ -23,12 +39,14 @@ def optim_iter(trainer, t):
     end = False
     finish_optim = trainer.steps_since_frame == trainer.optim_frames
     if trainer.incremental and (finish_optim or t == 0):
+        '''
         # After n steps with new frame, check whether to add it to kf set.
         if t == 0:
             add_new_frame = True
         else:
             add_new_frame = trainer.check_keyframe_latest()
-
+        '''
+        add_new_frame = True
         if add_new_frame:
             new_frame_id = trainer.get_latest_frame_id()
             size_dataset = len(trainer.scene_dataset)
@@ -44,7 +62,7 @@ def optim_iter(trainer, t):
                 frame_data = trainer.get_data([new_frame_id])
                 trainer.add_frame(frame_data)
 
-                if t == 0:
+                if t >= 0:
                     trainer.last_is_keyframe = True
                     trainer.optim_frames = 200
 

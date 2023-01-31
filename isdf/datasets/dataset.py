@@ -324,6 +324,100 @@ class ROSSubscriber(Dataset):
                     depth = self.depth_transform(depth)
 
                     # undistort depth, using nn rather than linear interpolation
+                    
+                    img_size = (depth.shape[1], depth.shape[0])
+                    map1, map2 = cv2.initUndistortRectifyMap(
+                        self.camera_matrix, self.distortion_coeffs, np.eye(3),
+                        self.camera_matrix, img_size, cv2.CV_32FC1)
+                    depth = cv2.remap(depth, map1, map2, cv2.INTER_NEAREST)
+                
+                sample = {
+                    "image": image,
+                    "depth": depth,
+                    "T": Twc,
+                }
+                return sample
+
+
+class ROS2Subscriber(Dataset):
+    def __init__(
+        self,
+        extrinsic_calib=None,
+        root_dir=None,
+        traj_file=None,
+        keep_ixs=None,
+        rgb_transform=None,
+        depth_transform=None,
+        noisy_depth=False,
+        col_ext=None,
+        distortion_coeffs=None,
+        camera_matrix=None,
+    ):
+        crop = False
+        self.rgb_transform = rgb_transform
+        self.depth_transform = depth_transform
+
+        self.distortion_coeffs = np.array(distortion_coeffs)
+        self.camera_matrix = camera_matrix
+
+        self.img = []
+        self.depth = []
+        self.Twc = []
+
+        self.max_size = 5
+
+        #Test
+        root_dir = '../../data/realsense_franka/6'
+        traj_file = root_dir + "/traj.txt"
+        if traj_file is not None:
+            self.Ts = np.loadtxt(traj_file)
+            self.Ts = self.Ts[:, 1:].reshape(-1, 4, 4)
+
+        self.rgb_dir = os.path.join(root_dir, "rgb")
+        self.depth_dir = os.path.join(root_dir, "depth")
+
+        for idx in range(10):        
+            depth_file = os.path.join(self.depth_dir, str(idx).zfill(5) + ".npy")
+            rgb_file = os.path.join(self.rgb_dir, str(idx).zfill(5) + '.jpg')
+
+            depth = np.load(depth_file)
+            image = cv2.imread(rgb_file)
+            
+            self.img.append(image)
+            self.depth.append(depth)
+            
+            if self.Ts is not None:
+                self.Twc.append(self.Ts[idx])
+
+    def __len__(self):
+        return 1000000000
+    
+    def add_frame(self, img, depth, Twc):
+        if len(self.img) >= self.max_size:
+            self.img.pop(0)
+            self.depth.pop(0)
+            self.Twc.pop(0)
+        
+        self.img.append(img)
+        self.depth.append(depth)
+        self.Twc.append(Twc)
+
+    def __getitem__(self, idx):
+        data = None
+        while data is None:
+            if idx >= len(self.img):
+                idx = -1
+            data = (self.img[idx], self.depth[idx], self.Twc[idx]) 
+
+            if data is not None:
+                image, depth, Twc = data
+
+                if self.rgb_transform:
+                    image = self.rgb_transform(image)
+                if self.depth_transform:
+                    depth = self.depth_transform(depth)
+
+                    # undistort depth, using nn rather than linear interpolation
                     img_size = (depth.shape[1], depth.shape[0])
                     map1, map2 = cv2.initUndistortRectifyMap(
                         self.camera_matrix, self.distortion_coeffs, np.eye(3),
