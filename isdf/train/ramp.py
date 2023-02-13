@@ -31,6 +31,7 @@ robot_T_camera = []
 
 with open("dump1.pkl", "rb") as f:
     for i, data in enumerate(pickleLoader(f)): 
+        print(data.keys())
         pc.append(data['pc'][:,:3])
         robot_T_camera.append(data['robot_T_camera'])
 

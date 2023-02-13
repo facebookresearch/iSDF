@@ -512,16 +512,16 @@ class Trainer():
             ims_file = self.ims_file
             camera_matrix = np.array([[self.fx, 0.0, self.cx], [0.0, self.fy, self.cy], [0.0, 0.0, 1.0]])
 
-        self.scene_dataset = dataset_class(
-            ims_file,
-            traj_file=self.traj_file,
-            rgb_transform=rgb_transform,
-            depth_transform=depth_transform,
-            col_ext=col_ext,
-            noisy_depth=noisy_depth,
-            distortion_coeffs=self.distortion_coeffs,
-            camera_matrix=camera_matrix,
-        )
+        # self.scene_dataset = dataset_class(
+        #     ims_file,
+        #     traj_file=self.traj_file,
+        #     rgb_transform=rgb_transform,
+        #     depth_transform=depth_transform,
+        #     col_ext=col_ext,
+        #     noisy_depth=noisy_depth,
+        #     distortion_coeffs=self.distortion_coeffs,
+        #     camera_matrix=camera_matrix,
+        # )
 
         if self.incremental is False:
             if "im_indices" not in self.config["dataset"]:
