@@ -696,8 +696,7 @@ class Trainer():
     # Main training methods ----------------------------------
     def sample_points_pc(
         self,
-        pc, 
-        Twc,
+        data,
         n_rays=None,
         dist_behind_surf=None,
         n_strat_samples=None,
@@ -713,16 +712,12 @@ class Trainer():
         if n_surf_samples is None:
             n_surf_samples = self.n_surf_samples
 
-        
+        Twc = data['twc']
         origin = Twc[:3, 3]
-        
-        dirs_C =  pc/np.expand_dims(np.linalg.norm(pc, axis = 1), axis = -1)
-        pcd = o3d.geometry.PointCloud()
-        pcd.points = o3d.utility.Vector3dVector(pc)
-        pcd.estimate_normals(
-            search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30))
+        dirs_C = data['dirs_C']
+        pcd = data['pcd']
+        depth = data['depth']
         norm_batch = np.asarray(pcd.normals)
-        depth = pc[:,2]
 
         size = 1000
         random_index = torch.tensor(np.random.choice(depth.shape[0], size = size, replace = False), dtype = torch.long)
@@ -1074,9 +1069,7 @@ class Trainer():
                 'indices_w': sample_pts['indices_w'],
             }
         else:
-            pc = data['pc']
-            Twc = data['twc']
-            sample_pts = self.sample_points_pc(pc, Twc)
+            sample_pts = self.sample_points_pc(data)
 
 
         total_loss, losses, active_loss_approx, frame_avg_loss = \
@@ -1529,7 +1522,12 @@ class Trainer():
             return scene
         return None
 
-    def get_sdf_grid(self):
+    def get_sdf_grid(self, grid_pc = None, dim = None):
+        
+        if torch.is_tensor(grid_pc):
+            self.grid_pc = grid_pc.to('cuda')
+            self.grid_dim = dim
+
         with torch.set_grad_enabled(False):
 
             # gt_dist = sdf_util.eval_sdf_interp(
@@ -1549,8 +1547,8 @@ class Trainer():
 
         return sdf
 
-    def get_sdf_grid_pc(self, include_gt=False, mask_near_pc=False):
-        sdf_grid = self.get_sdf_grid()
+    def get_sdf_grid_pc(self, include_gt=False, mask_near_pc=False, grid_pc = None, dim=None):
+        sdf_grid = self.get_sdf_grid(grid_pc, dim)
         grid_pc = self.grid_pc.reshape(
             self.grid_dim, self.grid_dim, self.grid_dim, 3)
         sdf_grid_pc = torch.cat((grid_pc, sdf_grid[..., None]), dim=-1)
