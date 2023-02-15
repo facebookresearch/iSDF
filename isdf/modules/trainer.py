@@ -30,6 +30,7 @@ from isdf.eval import metrics, eval_pts
 from isdf.visualisation import draw, draw3D
 from isdf.eval.metrics import start_timing, end_timing
 
+import open3d as o3d
 
 class Trainer():
     def __init__(
@@ -94,11 +95,15 @@ class Trainer():
             if self.sdf_transf_file is not None:
                 self.load_gt_sdf()
         self.cosSim = torch.nn.CosineSimilarity(dim=-1, eps=1e-6)
+        self.nfid = 0
 
     # Init functions ---------------------------------------
 
     def get_latest_frame_id(self):
-        return int(self.tot_step_time * self.fps)
+        self.nfid += 1
+        return self.nfid - 1
+
+        #return int(self.tot_step_time * self.fps)
 
     def set_scene_properties(self, scene_mesh = None):
         # if self.live:
@@ -145,8 +150,8 @@ class Trainer():
             transform=self.bounds_transform,
             scale=self.scene_scale,
         )
+        
         self.grid_pc = self.grid_pc.view(-1, 3).to(self.device)
-
         self.up_ix = np.argmax(np.abs(np.matmul(
             self.up, self.bounds_transform_np[:3, :3])))
         self.grid_up = self.bounds_transform_np[:3, self.up_ix]
@@ -493,6 +498,13 @@ class Trainer():
             ims_file =  self.ext_calib # extrinsic calib 
             self.traj_file = None
             camera_matrix = np.array([[self.fx, 0.0, self.cx], [0.0, self.fy, self.cy], [0.0, 0.0, 1.0]])
+        elif self.dataset_format == "ROS2":
+            dataset_class = dataset.ROS2Subscriber
+            col_ext = None
+            self.up = np.array([0., 0., 1.])
+            ims_file =  self.ext_calib # extrinsic calib 
+            self.traj_file = None
+            camera_matrix = np.array([[self.fx, 0.0, self.cx], [0.0, self.fy, self.cy], [0.0, 0.0, 1.0]])
         elif self.dataset_format == "realsense_franka_offline":
             dataset_class = dataset.RealsenseFrankaOffline
             col_ext = ".jpg"
@@ -500,16 +512,16 @@ class Trainer():
             ims_file = self.ims_file
             camera_matrix = np.array([[self.fx, 0.0, self.cx], [0.0, self.fy, self.cy], [0.0, 0.0, 1.0]])
 
-        self.scene_dataset = dataset_class(
-            ims_file,
-            traj_file=self.traj_file,
-            rgb_transform=rgb_transform,
-            depth_transform=depth_transform,
-            col_ext=col_ext,
-            noisy_depth=noisy_depth,
-            distortion_coeffs=self.distortion_coeffs,
-            camera_matrix=camera_matrix,
-        )
+        # self.scene_dataset = dataset_class(
+        #     ims_file,
+        #     traj_file=self.traj_file,
+        #     rgb_transform=rgb_transform,
+        #     depth_transform=depth_transform,
+        #     col_ext=col_ext,
+        #     noisy_depth=noisy_depth,
+        #     distortion_coeffs=self.distortion_coeffs,
+        #     camera_matrix=camera_matrix,
+        # )
 
         if self.incremental is False:
             if "im_indices" not in self.config["dataset"]:
@@ -636,12 +648,15 @@ class Trainer():
             depth_gt = self.frames.depth_batch[-1].unsqueeze(0)
             self.last_is_keyframe = self.is_keyframe(T_WC, depth_gt)
 
+            '''
             time_since_kf = self.tot_step_time - self.frames.frame_id[-2] / 30.
             if time_since_kf > 5. and not self.live:
                 print("More than 5 seconds since last kf, so add new")
                 self.last_is_keyframe = True
+            '''
 
             if self.last_is_keyframe:
+                
                 self.optim_frames = self.iters_per_kf
                 self.noise_std = self.noise_kf
             else:
@@ -679,6 +694,75 @@ class Trainer():
         self.gt_im_vis = None
 
     # Main training methods ----------------------------------
+    def sample_points_pc(
+        self,
+        data,
+        n_rays=None,
+        dist_behind_surf=None,
+        n_strat_samples=None,
+        n_surf_samples=None,
+        ):
+
+        if n_rays is None:
+            n_rays = self.n_rays
+        if dist_behind_surf is None:
+            dist_behind_surf = self.dist_behind_surf
+        if n_strat_samples is None:
+            n_strat_samples = self.n_strat_samples
+        if n_surf_samples is None:
+            n_surf_samples = self.n_surf_samples
+
+        Twc = data['twc']
+        origin = Twc[:3, 3]
+        dirs_C = data['dirs_C']
+        pcd = data['pcd']
+        depth = data['depth']
+        norm_batch = np.asarray(pcd.normals)
+
+        size = 1000
+        random_index = torch.tensor(np.random.choice(depth.shape[0], size = size, replace = False), dtype = torch.long)
+
+        depth_sample = torch.tensor(depth, dtype=torch.float)
+        dirs_C_sample = torch.tensor(dirs_C, dtype=torch.float)
+        norm_sample = torch.tensor(norm_batch, dtype=torch.float)
+        T_WC_sample = torch.tensor(np.expand_dims(Twc, axis = 0), dtype = torch.float)
+
+        depth_sample = depth_sample[random_index].to(self.device)
+        dirs_C_sample = dirs_C_sample[random_index].to(self.device)
+        norm_sample = norm_sample[random_index].to(self.device)
+        
+        expand_dimension = torch.tensor(np.zeros(size), dtype = torch.long)
+        T_WC_sample = T_WC_sample[expand_dimension].to(self.device)
+        max_depth = depth_sample + dist_behind_surf
+
+        pc, z_vals = sample.sample_along_rays(
+            T_WC_sample,
+            self.min_depth,
+            max_depth,
+            n_strat_samples,
+            n_surf_samples,
+            dirs_C_sample,
+            gt_depth=depth_sample,
+            grad=False,
+        )
+
+        #print(">>>>>>", pc.shape, pc.type())
+        #print(">>>>>>", z_vals.shape, z_vals.type())
+        #print(">>>>>>", dirs_C_sample.shape, dirs_C_sample.type())
+        #print(">>>>>>", depth_sample.shape, depth_sample.type())
+        #print(">>>>>>", T_WC_sample.shape, T_WC_sample.type())
+        #print(">>>>>>", norm_sample.shape, norm_sample.type())
+
+        sample_pts = {
+            "pc": pc,
+            "z_vals": z_vals,
+            "dirs_C_sample": dirs_C_sample,
+            "depth_sample": depth_sample,
+            "T_WC_sample": T_WC_sample,
+            "norm_sample": norm_sample,
+        }
+        return sample_pts
+        
 
     def sample_points(
         self,
@@ -737,7 +821,7 @@ class Trainer():
             norm_batch=norm_batch,
             get_masks=get_masks,
         )
-
+        
         max_depth = depth_sample + dist_behind_surf
         pc, z_vals = sample.sample_along_rays(
             T_WC_sample,
@@ -749,7 +833,8 @@ class Trainer():
             gt_depth=depth_sample,
             grad=False,
         )
-
+        
+        
         sample_pts = {
             "depth_batch": depth_batch,
             "pc": pc,
@@ -763,6 +848,14 @@ class Trainer():
             "norm_sample": norm_sample,
             "binary_masks": binary_masks,
         }
+        # print(">>>>>>", T_WC_batch.shape)
+        # print(">>>>>>", pc.shape, pc.type())
+        # print(">>>>>>", z_vals.shape, z_vals.type())
+        # print(">>>>>>", dirs_C_sample.shape, dirs_C_sample.type())
+        # print(">>>>>>", depth_sample.shape, depth_sample.type())
+        # print(">>>>>>", T_WC_sample.shape, T_WC_sample.type())
+        # print(">>>>>>", norm_sample.shape, norm_sample.type())
+
         return sample_pts
 
     def sdf_eval_and_loss(
@@ -772,15 +865,15 @@ class Trainer():
     ):
         pc = sample["pc"]
         z_vals = sample["z_vals"]
-        indices_b = sample["indices_b"]
-        indices_h = sample["indices_h"]
-        indices_w = sample["indices_w"]
+        #indices_b = sample["indices_b"]
+        #indices_h = sample["indices_h"]
+        #indices_w = sample["indices_w"]
         dirs_C_sample = sample["dirs_C_sample"]
         depth_sample = sample["depth_sample"]
         T_WC_sample = sample["T_WC_sample"]
         norm_sample = sample["norm_sample"]
-        binary_masks = sample["binary_masks"]
-        depth_batch = sample["depth_batch"]
+        #binary_masks = sample["binary_masks"]
+        #depth_batch = sample["depth_batch"]
 
         do_sdf_grad = self.eik_weight != 0 or self.grad_weight != 0
         if do_sdf_grad:
@@ -793,7 +886,6 @@ class Trainer():
             sdf_grad = fc_map.gradient(pc, sdf)
 
         # compute bounds
-
         bounds, grad_vec = loss.bounds(
             self.bounds_method,
             dirs_C_sample,
@@ -836,11 +928,12 @@ class Trainer():
         )
 
         loss_approx, frame_avg_loss = None, None
+        '''
         if do_avg_loss:
             loss_approx, frame_avg_loss = loss.frame_avg(
                 total_loss_mat, depth_batch, indices_b, indices_h, indices_w,
                 self.W, self.H, self.loss_approx_factor, binary_masks)
-
+        '''
         # # # for plot
         # z_to_euclidean_depth = dirs_C_sample.norm(dim=-1)
         # ray_target = depth_sample[:, None] - z_vals
@@ -948,35 +1041,41 @@ class Trainer():
 
         scene.show()
 
-    def step(self):
+    def step(self, data = None):
         start, end = start_timing()
 
-        depth_batch = self.frames.depth_batch
-        T_WC_batch = self.frames.T_WC_batch
-        norm_batch = self.frames.normal_batch if self.do_normal else None
+        if not isinstance(data, dict):
 
-        if len(self.frames) > self.window_size and self.incremental:
-            idxs = self.select_keyframes()
-            # print("selected frame ids", self.frames.frame_id[idxs[:-1]])
+            depth_batch = self.frames.depth_batch
+            T_WC_batch = self.frames.T_WC_batch
+            norm_batch = self.frames.normal_batch if self.do_normal else None
+
+            if len(self.frames) > self.window_size and self.incremental:
+                idxs = self.select_keyframes()
+                # print("selected frame ids", self.frames.frame_id[idxs[:-1]])
+            else:
+                idxs = np.arange(T_WC_batch.shape[0])
+            self.active_idxs = idxs
+
+            depth_batch = depth_batch[idxs]
+            T_WC_select = T_WC_batch[idxs]
+
+            sample_pts = self.sample_points(
+                depth_batch, T_WC_select, norm_batch=norm_batch)
+            
+            self.active_pixels = {
+                'indices_b': sample_pts['indices_b'],
+                'indices_h': sample_pts['indices_h'],
+                'indices_w': sample_pts['indices_w'],
+            }
         else:
-            idxs = np.arange(T_WC_batch.shape[0])
-        self.active_idxs = idxs
+            sample_pts = self.sample_points_pc(data)
 
-        depth_batch = depth_batch[idxs]
-        T_WC_select = T_WC_batch[idxs]
-
-        sample_pts = self.sample_points(
-            depth_batch, T_WC_select, norm_batch=norm_batch)
-        self.active_pixels = {
-            'indices_b': sample_pts['indices_b'],
-            'indices_h': sample_pts['indices_h'],
-            'indices_w': sample_pts['indices_w'],
-        }
 
         total_loss, losses, active_loss_approx, frame_avg_loss = \
             self.sdf_eval_and_loss(sample_pts, do_avg_loss=True)
 
-        self.frames.frame_avg_losses[idxs] = frame_avg_loss
+        #self.frames.frame_avg_losses[idxs] = frame_avg_loss
 
         total_loss.backward()
         self.optimiser.step()
@@ -1423,7 +1522,12 @@ class Trainer():
             return scene
         return None
 
-    def get_sdf_grid(self):
+    def get_sdf_grid(self, grid_pc = None, dim = None):
+        
+        if torch.is_tensor(grid_pc):
+            self.grid_pc = grid_pc.to('cuda')
+            self.grid_dim = dim
+
         with torch.set_grad_enabled(False):
 
             # gt_dist = sdf_util.eval_sdf_interp(
@@ -1443,8 +1547,8 @@ class Trainer():
 
         return sdf
 
-    def get_sdf_grid_pc(self, include_gt=False, mask_near_pc=False):
-        sdf_grid = self.get_sdf_grid()
+    def get_sdf_grid_pc(self, include_gt=False, mask_near_pc=False, grid_pc = None, dim=None):
+        sdf_grid = self.get_sdf_grid(grid_pc, dim)
         grid_pc = self.grid_pc.reshape(
             self.grid_dim, self.grid_dim, self.grid_dim, 3)
         sdf_grid_pc = torch.cat((grid_pc, sdf_grid[..., None]), dim=-1)
@@ -1516,14 +1620,12 @@ class Trainer():
             self.set_scene_properties(pc_tm)
 
         sdf = self.get_sdf_grid()
-
         sdf_mesh = draw3D.draw_mesh(
             sdf,
             self.scene_scale_np,
             self.bounds_transform_np,
             color_by="none",
         )
-
         if crop_mesh_with_pc:
             tree = KDTree(pc)
             dists, _ = tree.query(sdf_mesh.vertices, k=1)
